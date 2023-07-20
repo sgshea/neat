@@ -166,15 +166,6 @@ impl Genome {
         }
     }
 
-    // Mutate a random weight on a connection
-    fn mutate_weight(&mut self) {
-        let rand_edge = self.network_graph.edge_indices().choose(&mut rand::thread_rng());
-        if let Some(edge) = rand_edge {
-            let edge = self.network_graph.edge_weight_mut(edge).unwrap();
-            edge.set_weight(rand::thread_rng().gen_range(-10.0..=10.0));
-        }
-    }
-
     // Helper function for loading inputs into proper nodes
     fn load_inputs(&mut self, inputs: &[f32]) {
         assert_eq!(inputs.len(), self.input_nodes);
@@ -222,8 +213,34 @@ impl Genome {
         output_nodes
     }
 
-    pub fn mutate(&mut self) {
-        // TODO
+    // Handle random mutations
+    // Should refactor weights out to a config later (maybe pass in as parameter)
+    pub fn mutate(&mut self, innovation_record: &mut InnovationRecord) {
+        let mut rng = rand::thread_rng();
+        if rng.gen::<f32>() < 0.8 {
+            // mutate connections
+            for conn in self.network_graph.edge_weights_mut() {
+                if rng.gen::<f32>() < 0.9 {
+                    // Add random value to weight
+                    conn.set_weight(conn.get_weight() + rng.gen_range(-0.2..=0.2));
+                }
+                else {
+                    // Set to random value
+                    conn.set_weight(rng.gen_range(-2.0..=2.0));
+                }
+            }
+        }
+        if rng.gen::<f32>() < 0.003 {
+            // split connection (add_node)
+            self.add_node(innovation_record);
+        }
+        if rng.gen::<f32>() <0.01 {
+            // swap connection (enable/disable)
+        }
+        if rng.gen::<f32>() < 0.005 {
+            // add connection
+            self.add_connection(innovation_record);
+        }
     }
 
     pub fn output_graph(&self) {
