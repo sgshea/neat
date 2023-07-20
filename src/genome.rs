@@ -1,8 +1,11 @@
+use petgraph::{algo, Direction};
 use petgraph::dot::{Config, Dot};
 use petgraph::graph::{DiGraph, NodeIndex};
+use petgraph::visit::IntoNeighborsDirected;
 use rand::Rng;
 use rand::seq::IteratorRandom;
 use rand::prelude::SliceRandom;
+use crate::activation::Activation;
 
 use crate::connection::Connection;
 use crate::innovation_record::InnovationRecord;
@@ -119,7 +122,7 @@ impl Genome {
         // We will try to add connection and if it creates a cycle, remove it
         let (from, to) = possible_conn.choose(&mut rand::thread_rng()).unwrap();
         let new_connection = self.network_graph.add_edge(*from, *to, Connection::new(innovation_record.new_connection(), 1.0));
-        if petgraph::algo::is_cyclic_directed(&self.network_graph) {
+        if algo::is_cyclic_directed(&self.network_graph) {
             self.network_graph.remove_edge(new_connection);
             innovation_record.remove_last_connection();
         }
@@ -173,19 +176,50 @@ impl Genome {
     }
 
     // Helper function for loading inputs into proper nodes
-    fn load_inputs(&mut self, inputs: Vec<f32>) {
+    fn load_inputs(&mut self, inputs: &[f32]) {
         assert_eq!(inputs.len(), self.input_nodes);
 
         for (i, input) in inputs.iter().enumerate() {
             let node = self.network_graph.node_weight_mut(NodeIndex::new(i)).unwrap();
             node.update_sum(*input);
+            node.activate(Activation::Linear);
         }
     }
 
-    pub fn output(&mut self, inputs: Vec<f32>) -> Vec<f32> {
+    // feed-forward
+    pub fn output(&mut self, inputs: &[f32], activation: Activation) -> Vec<f32> {
         self.load_inputs(inputs);
 
-        Vec::new()
+        let topo = algo::toposort(&self.network_graph, None).unwrap().clone();
+        let graph = &mut self.network_graph;
+        for node in topo {
+            // Skip input nodes
+            if graph.neighbors_directed(node, Direction::Incoming).count() == 0 {
+                continue;
+            }
+
+            let weighted_sum = graph
+                .neighbors_directed(node, Direction::Incoming)
+                .map(|n| {
+                    let edge = graph.find_edge(n, node).unwrap();
+                    let edge_weight = graph.edge_weight(edge).unwrap();
+                    edge_weight.get_weight() * graph.node_weight(n).unwrap().get_output()
+                })
+                .sum();
+
+            // apply weighted sum to node
+            let node = graph.node_weight_mut(node).unwrap();
+            node.update_sum(weighted_sum);
+            node.activate(activation);
+        }
+
+        // Get output nodes
+        let output_nodes: Vec<f32> = graph.node_indices()
+            .filter(|&n| graph.node_weight(n).unwrap().get_type() == NodeType::Output)
+            .map(|n| graph.node_weight(n).unwrap().get_sum())
+            .collect();
+
+        output_nodes
     }
 
     pub fn mutate(&mut self) {
@@ -195,7 +229,10 @@ impl Genome {
     pub fn output_graph(&self) {
         println!(
             "{:?}",
-            Dot::with_config(&self.network_graph, &[Config::GraphContentOnly])
+            Dot::with_config(
+                &self.network_graph,
+                &[Config::GraphContentOnly]
+            )
         );
     }
 }

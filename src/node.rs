@@ -13,6 +13,7 @@ pub struct Node {
     node_id: usize,
     node_type: NodeType,
     sum_inputs: f32,
+    output: f32,
 }
 
 impl Node {
@@ -21,6 +22,7 @@ impl Node {
             node_id: node_identifier,
             node_type,
             sum_inputs: 0.0,
+            output: 0.0,
         }
     }
 
@@ -34,10 +36,12 @@ impl Node {
             self.node_type == NodeType::Output
         {
             // Pass through
-            Some(self.sum_inputs)
+            self.output = self.sum_inputs;
+            Some(self.output)
         }
         else if self.node_type == NodeType::Hidden {
-            Some(func.activate(self.sum_inputs))
+            self.output = func.activate(self.sum_inputs);
+            Some(self.output)
         }
         else {
             None
@@ -54,5 +58,9 @@ impl Node {
 
     pub fn get_sum(&self) -> f32 {
         self.sum_inputs
+    }
+
+    pub fn get_output(&self) -> f32 {
+        self.output
     }
 }
