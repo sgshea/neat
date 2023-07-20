@@ -223,8 +223,7 @@ impl Genome {
                 if rng.gen::<f32>() < 0.9 {
                     // Add random value to weight
                     conn.set_weight(conn.get_weight() + rng.gen_range(-0.2..=0.2));
-                }
-                else {
+                } else {
                     // Set to random value
                     conn.set_weight(rng.gen_range(-2.0..=2.0));
                 }
@@ -234,8 +233,11 @@ impl Genome {
             // split connection (add_node)
             self.add_node(innovation_record);
         }
-        if rng.gen::<f32>() <0.01 {
+        if rng.gen::<f32>() < 0.01 {
             // swap connection (enable/disable)
+            let mut rng = rand::thread_rng();
+            let choice = self.network_graph.edge_weights_mut().choose(&mut rng).unwrap();
+            choice.swap_enabled();
         }
         if rng.gen::<f32>() < 0.005 {
             // add connection

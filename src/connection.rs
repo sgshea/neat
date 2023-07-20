@@ -32,6 +32,10 @@ impl Connection {
         self.enabled = true;
     }
 
+    pub fn swap_enabled(&mut self) {
+        self.enabled = !self.enabled;
+    }
+
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }
