@@ -7,7 +7,12 @@ pub struct Individual {
 }
 
 impl Individual {
-    pub fn new(input_nodes: usize, output_nodes: usize, hidden_nodes: usize, innovation_record: &mut InnovationRecord) -> Self {
+    pub fn new(
+        input_nodes: usize,
+        output_nodes: usize,
+        hidden_nodes: usize,
+        innovation_record: &mut InnovationRecord,
+    ) -> Self {
         Self {
             genome: Genome::new(input_nodes, output_nodes, hidden_nodes, innovation_record),
             fitness: 0.0,
