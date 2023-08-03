@@ -2,9 +2,7 @@ use crate::activation::Activation;
 use petgraph::data::DataMap;
 use petgraph::dot::{Config, Dot};
 use petgraph::graph::{DiGraph, EdgeIndex, NodeIndex};
-use petgraph::visit::IntoNeighborsDirected;
 use petgraph::{algo, Direction};
-use rand::distributions::Bernoulli;
 use rand::prelude::SliceRandom;
 use rand::seq::IteratorRandom;
 use rand::Rng;
@@ -24,6 +22,20 @@ pub struct Genome {
 }
 
 impl Genome {
+    fn new_from_graph(
+        network_graph: DiGraph<Node, Connection>,
+        input_nodes: usize,
+        output_nodes: usize,
+        hidden_nodes: usize,
+    ) -> Self {
+        Self {
+            network_graph,
+            input_nodes,
+            output_nodes,
+            hidden_nodes,
+        }
+    }
+
     // Create a disconnected graph
     pub fn new_disconnected(input_nodes: usize, output_nodes: usize, hidden_nodes: usize) -> Self {
         let mut network_graph = DiGraph::<Node, Connection>::new();
@@ -62,13 +74,15 @@ impl Genome {
     ) -> Self {
         let mut genome = Self::new_disconnected(input_nodes, output_nodes, hidden_nodes);
 
+        let rng = &mut rand::thread_rng();
+
         for i in 0..input_nodes {
             for j in 0..hidden_nodes {
                 let innovation_number = innovation_record.new_connection();
                 genome.network_graph.add_edge(
                     NodeIndex::new(i),
                     NodeIndex::new(input_nodes + output_nodes + j + 1),
-                    Connection::new(innovation_number, 1.0),
+                    Connection::new(innovation_number, rng.gen_range(-2.0..2.0)),
                 );
             }
         }
@@ -80,7 +94,7 @@ impl Genome {
                     genome.network_graph.add_edge(
                         NodeIndex::new(input_nodes + output_nodes + i + 1),
                         NodeIndex::new(input_nodes + j + 1),
-                        Connection::new(innovation_number, 1.0),
+                        Connection::new(innovation_number, rng.gen_range(-2.0..2.0)),
                     );
                 }
             }
@@ -91,7 +105,7 @@ impl Genome {
                     genome.network_graph.add_edge(
                         NodeIndex::new(i),
                         NodeIndex::new(input_nodes + j + 1),
-                        Connection::new(innovation_number, 1.0),
+                        Connection::new(innovation_number, rng.gen_range(-2.0..2.0)),
                     );
                 }
             }
@@ -138,16 +152,20 @@ impl Genome {
             .collect();
 
         // We will try to add connection and if it creates a cycle, remove it
-        let (from, to) = possible_conn.choose(&mut rand::thread_rng()).unwrap();
-        let new_connection = self.network_graph.add_edge(
-            *from,
-            *to,
-            Connection::new(innovation_record.new_connection(), 1.0),
-        );
-        if algo::is_cyclic_directed(&self.network_graph) {
-            self.network_graph.remove_edge(new_connection);
-            innovation_record.remove_last_connection();
-        }
+        match possible_conn.choose(&mut rand::thread_rng()) {
+            None => {} // Do nothing
+            Some((from, to)) => {
+                let new_connection = self.network_graph.add_edge(
+                    *from,
+                    *to,
+                    Connection::new(innovation_record.new_connection(), 1.0),
+                );
+                if algo::is_cyclic_directed(&self.network_graph) {
+                    self.network_graph.remove_edge(new_connection);
+                    innovation_record.remove_last_connection();
+                }
+            }
+        };
     }
 
     // Mutation where node is added
@@ -191,10 +209,19 @@ impl Genome {
         }
     }
 
-    // crossover function
-    pub fn crossover(&self, other: &Genome) {
-        let mut rng = rand::thread_rng();
-
+    // Helper function
+    // Collects genes that are matching, disjoint between self (fitter) and other genome
+    // Also returns all connections for each for further use
+    fn difference(
+        &self,
+        other: &Genome,
+    ) -> (
+        HashMap<usize, EdgeIndex>,
+        HashMap<usize, EdgeIndex>,
+        Vec<usize>,
+        Vec<usize>,
+        Vec<usize>,
+    ) {
         // First collect all connections from each
         let self_conn: HashMap<usize, EdgeIndex> = self
             .network_graph
@@ -239,30 +266,53 @@ impl Genome {
             .map(|key| *key)
             .collect();
 
-        // Create new genome
-        let mut new_genome =
-            Genome::new_disconnected(self.input_nodes, self.output_nodes, self.hidden_nodes);
-        let mut new_genes: Vec<(EdgeIndex<_>, Connection)> = Vec::new();
+        // Get other's disjoint genes
+        let other_disjoint: Vec<usize> = other_conn
+            .keys()
+            .filter(|key| !self_conn.contains_key(key))
+            .map(|key| *key)
+            .collect();
+
+        (
+            self_conn,
+            other_conn,
+            matching_genes,
+            disjoint_genes,
+            other_disjoint,
+        )
+    }
+
+    // crossover function
+    pub fn crossover(&self, other: &Genome) -> Genome {
+        let mut rng = rand::thread_rng();
+
+        let (self_conn, other_conn, matching_genes, disjoint_genes, _) = self.difference(other);
+
+        let mut new_genes: Vec<(Connection, &Node, &Node)> = Vec::new();
 
         // Random chance (50%)
         for i in matching_genes {
             // Choose a random connection gene to use and place in new_genes
+            let (from, to) = self.network_graph.edge_endpoints(self_conn[&i]).unwrap();
             if rng.gen::<f32>() <= 0.50 {
                 new_genes.push((
-                    self_conn[&i],
                     self.network_graph
                         .edge_weight(self_conn[&i])
                         .unwrap()
                         .clone(),
+                    self.network_graph.node_weight(from).unwrap(),
+                    self.network_graph.node_weight(to).unwrap(),
                 ));
             } else {
+                let (from, to) = self.network_graph.edge_endpoints(self_conn[&i]).unwrap();
                 new_genes.push((
-                    other_conn[&i],
                     other
                         .network_graph
                         .edge_weight(other_conn[&i])
                         .unwrap()
                         .clone(),
+                    self.network_graph.node_weight(from).unwrap(),
+                    self.network_graph.node_weight(to).unwrap(),
                 ));
             }
         }
@@ -270,19 +320,98 @@ impl Genome {
         // Now handle disjoint/excess genes
         // We assume the genome being called is the more fit one and take it's excess genes
         for i in disjoint_genes {
+            let (from, to) = self.network_graph.edge_endpoints(self_conn[&i]).unwrap();
             new_genes.push((
-                self_conn[&i],
                 self.network_graph
                     .edge_weight(self_conn[&i])
                     .unwrap()
                     .clone(),
+                self.network_graph.node_weight(from).unwrap(),
+                self.network_graph.node_weight(to).unwrap(),
             ));
         }
 
-        // Now make sure new_genome has all the required nodes before adding connection genes
-        for gene in &new_genes {
-            // TODO
+        // Create new graph
+        let mut new_graph = DiGraph::<Node, Connection>::new();
+
+        // Keep track of adding new nodes
+        let mut added_nodes: HashMap<usize, NodeIndex> = HashMap::new();
+
+        // Add input/output/bias nodes
+        for node in self.network_graph.raw_nodes() {
+            if node.weight.get_type() == NodeType::Input
+                || node.weight.get_type() == NodeType::Output
+                || node.weight.get_type() == NodeType::Bias
+            {
+                let new_node =
+                    new_graph.add_node(Node::new(node.weight.get_id(), node.weight.get_type()));
+                added_nodes.insert(node.weight.get_id(), new_node);
+            }
         }
+
+        // Add new genes to graph
+        for (connection, node1, node2) in new_genes {
+            let from = if added_nodes.contains_key(&node1.get_id()) {
+                added_nodes[&node1.get_id()]
+            } else {
+                let new_node = new_graph.add_node(Node::new(node1.get_id(), node1.get_type()));
+                added_nodes.insert(node1.get_id(), new_node);
+                new_node
+            };
+
+            let to = if added_nodes.contains_key(&node2.get_id()) {
+                added_nodes[&node1.get_id()]
+            } else {
+                let new_node = new_graph.add_node(Node::new(node2.get_id(), node2.get_type()));
+                added_nodes.insert(node2.get_id(), new_node);
+                new_node
+            };
+
+            new_graph.add_edge(from, to, connection);
+        }
+
+        Genome::new_from_graph(
+            new_graph,
+            self.input_nodes,
+            self.output_nodes,
+            self.hidden_nodes,
+        )
+    }
+
+    pub fn compatability_distance(&self, other: &Genome) -> f64 {
+        let (self_conn, other_conn, matching_genes, disjoint_genes, other_disjoint) =
+            self.difference(other);
+
+        let mut weight_diff: f64 = 0.0;
+
+        for i in &matching_genes {
+            weight_diff += (self
+                .network_graph
+                .edge_weight(self_conn[&i])
+                .unwrap()
+                .get_weight() as f64
+                - other
+                    .network_graph
+                    .edge_weight(other_conn[&i])
+                    .unwrap()
+                    .get_weight() as f64)
+                .abs();
+        }
+
+        let n = f64::max(self_conn.len() as f64, other_conn.len() as f64);
+
+        // compatibility distance formula is (c1 * E) / N + (c2 * D) / N + c3 * W
+        // page 13 of NEAT paper
+        // E = number of disjoint genes from self
+        // D = number of disjoint genes from other
+        // N = number of genes in larger genome
+        // W = average weight difference of matching genes
+        // c1, c2, c3 are configurable coefficients
+        // TODO: Configurable coefficients
+
+        (disjoint_genes.len() as f64 / n)
+            + (other_disjoint.len() as f64 / n)
+            + (weight_diff / matching_genes.len() as f64)
     }
 
     // Helper function for loading inputs into proper nodes
@@ -297,6 +426,15 @@ impl Genome {
             node.update_sum(*input);
             node.activate(Activation::Linear);
         }
+
+        // Load bias node
+        let bias_node = self
+            .network_graph
+            .node_weight_mut(NodeIndex::new(self.input_nodes))
+            .unwrap();
+
+        bias_node.update_sum(1.0);
+        bias_node.activate(Activation::Linear);
     }
 
     // feed-forward
@@ -343,9 +481,9 @@ impl Genome {
         if rng.gen::<f32>() < 0.8 {
             // mutate connections
             for conn in self.network_graph.edge_weights_mut() {
-                if rng.gen::<f32>() < 0.9 {
+                if rng.gen::<f32>() < 0.7 {
                     // Add random value to weight
-                    conn.set_weight(conn.get_weight() + rng.gen_range(-0.2..=0.2));
+                    conn.set_weight(conn.get_weight() + rng.gen_range(-0.3..=0.3));
                 } else {
                     // Set to random value
                     conn.set_weight(rng.gen_range(-2.0..=2.0));

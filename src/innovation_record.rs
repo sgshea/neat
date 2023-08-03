@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct InnovationRecord {
     node_amount: usize,
     connection_amount: usize,
