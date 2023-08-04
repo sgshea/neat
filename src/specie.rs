@@ -1,7 +1,7 @@
+use crate::environment::Environment;
 use crate::individual::Individual;
 use crate::innovation_record::InnovationRecord;
 use rand::Rng;
-use crate::environment::Environment;
 
 #[derive(Debug)]
 pub struct Specie {
@@ -113,7 +113,11 @@ impl Specie {
     }
 
     // This is the function to be called when evolving
-    pub fn update_species(&mut self, innovation_record: &mut InnovationRecord, environment: &mut dyn Environment) {
+    pub fn update_species(
+        &mut self,
+        innovation_record: &mut InnovationRecord,
+        environment: &mut dyn Environment,
+    ) {
         self.age += 1;
         self.previous_fitness = self.best_fitness;
 

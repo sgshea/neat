@@ -31,14 +31,11 @@ impl Node {
     }
 
     pub fn activate(&mut self, func: Activation) -> Option<f32> {
-        if self.node_type == NodeType::Input
-            || self.node_type == NodeType::Bias
-            || self.node_type == NodeType::Output
-        {
+        if self.node_type == NodeType::Input || self.node_type == NodeType::Bias {
             // Pass through
             self.output = self.sum_inputs;
             Some(self.output)
-        } else if self.node_type == NodeType::Hidden {
+        } else if self.node_type == NodeType::Hidden || self.node_type == NodeType::Output {
             self.output = func.activate(self.sum_inputs);
             Some(self.output)
         } else {

@@ -1,7 +1,7 @@
+use crate::activation::Activation;
 use crate::genome::Genome;
 use crate::innovation_record::InnovationRecord;
 use std::cmp::Ordering;
-use crate::activation::Activation;
 
 #[derive(Debug, Clone)]
 pub struct Individual {
@@ -71,8 +71,9 @@ impl PartialOrd for Individual {
 
 impl Ord for Individual {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.fitness
-            .partial_cmp(&other.fitness)
+        other
+            .fitness
+            .partial_cmp(&self.fitness)
             .expect("Failed to compare fitness")
     }
 }

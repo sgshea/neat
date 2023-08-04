@@ -70,7 +70,6 @@ pub struct Neat {
 }
 
 impl Neat {
-
     // Creates a new NEAT population
     pub fn new(
         config: NeatConfig,
@@ -79,7 +78,6 @@ impl Neat {
         output_nodes: usize,
         hidden_nodes: usize,
     ) -> Self {
-
         let mut neat = Neat {
             config,
             population_size,
@@ -116,7 +114,10 @@ impl Neat {
             ));
         }
 
-        let mut specie = Specie::new(self.innovation_record.new_species(), individuals.first().unwrap().clone());
+        let mut specie = Specie::new(
+            self.innovation_record.new_species(),
+            individuals.first().unwrap().clone(),
+        );
         specie.set_individuals(individuals);
         self.species.push(specie);
     }
@@ -136,7 +137,6 @@ impl Neat {
     // Evaluate the current population
     // Returns the champion if one
     pub fn evaluate(&mut self, environment: &mut dyn Environment) -> Option<Individual> {
-
         // Evolve next generation
         self.next_generation(environment);
 
@@ -148,6 +148,5 @@ impl Neat {
         self.champion_fitness = Some(champion.fitness);
 
         self.champion.clone()
-
     }
 }
