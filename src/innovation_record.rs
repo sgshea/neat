@@ -7,7 +7,6 @@ pub struct InnovationRecord {
 }
 
 impl InnovationRecord {
-
     pub fn new() -> Self {
         InnovationRecord {
             innovation_number: HashMap::new(),

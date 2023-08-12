@@ -1,8 +1,8 @@
-use std::cmp::{max, Ordering};
-use std::fmt::Display;
 use crate::genes::{ActivationFunction, ConnectionGene, NodeGene, NodeType};
 use crate::innovation_record::InnovationRecord;
 use rand::Rng;
+use std::cmp::{max, Ordering};
+use std::fmt::Display;
 
 #[derive(Clone, Debug)]
 pub struct Genome {
@@ -16,7 +16,6 @@ pub struct Genome {
     outputs: usize,
     layers: usize,
 
-    pub species_id: usize,
     pub fitness: f64,
 }
 
@@ -30,7 +29,6 @@ impl Genome {
             layers: 2,
             bias_node: 0,
             fitness: 0.0,
-            species_id: 0,
         };
 
         for _ in 0..inputs {
@@ -44,13 +42,9 @@ impl Genome {
         }
         // Push bias node
         let bias_id = innovation_record.new_node_innovation();
-        genome.node.push(NodeGene::new(
-            bias_id,
-            NodeType::Bias,
-            1,
-            0.0,
-            0.0,
-        ));
+        genome
+            .node
+            .push(NodeGene::new(bias_id, NodeType::Bias, 1, 0.0, 0.0));
         genome.bias_node = bias_id;
         for _ in 0..outputs {
             genome.node.push(NodeGene::new(
@@ -75,7 +69,6 @@ impl Genome {
             layers: 2,
             bias_node: bias_id,
             fitness: 0.0,
-            species_id: 0,
         }
     }
 
@@ -154,7 +147,10 @@ impl Genome {
             }
 
             // Check if connection already exists
-            match self.genes.iter_mut().find(|gene| gene.in_node == node_1.id && gene.out_node == node_2.id)
+            match self
+                .genes
+                .iter_mut()
+                .find(|gene| gene.in_node == node_1.id && gene.out_node == node_2.id)
             {
                 None => {
                     // Do nothing
@@ -189,7 +185,9 @@ impl Genome {
         let node_id = innovation_record.new_node_innovation();
         // from layer
         let connection_ids: (usize, usize) = (connection.in_node, connection.out_node);
-        let from_layer = get_node(connection_ids.0, &mut self.node.clone()).unwrap().node_layer;
+        let from_layer = get_node(connection_ids.0, &mut self.node.clone())
+            .unwrap()
+            .node_layer;
         self.node.push(NodeGene::new(
             node_id,
             NodeType::Hidden,
@@ -223,9 +221,9 @@ impl Genome {
 
     pub fn fully_connect(&mut self, innovation_record: &mut InnovationRecord) {
         // If there are hidden nodes
-        if self.node.len() > self.inputs+self.outputs {
+        if self.node.len() > self.inputs + self.outputs {
             for i in 0..self.inputs {
-                for j in self.inputs+self.outputs..=self.node.len() {
+                for j in self.inputs + self.outputs..=self.node.len() {
                     self.genes.push(ConnectionGene::new(
                         self.node[i].id,
                         self.node[j].id,
@@ -234,7 +232,7 @@ impl Genome {
                     ));
                 }
             }
-            for i in self.inputs+self.outputs..=self.node.len() {
+            for i in self.inputs + self.outputs..=self.node.len() {
                 for j in 0..self.outputs {
                     self.genes.push(ConnectionGene::new(
                         self.node[i].id,
@@ -292,13 +290,17 @@ impl Genome {
                         }
                     });
                     // Apply activation function
-                    let node_index = self.node.iter().position(|node| node.id == node_id.clone()).unwrap();
+                    let node_index = self
+                        .node
+                        .iter()
+                        .position(|node| node.id == node_id.clone())
+                        .unwrap();
                     self.node[node_index].sum_inputs = node.sum_inputs;
-                    self.node[node_index].sum_outputs = 1.0 / (1.0 + (-node.sum_inputs).exp());
+                    self.node[node_index].sum_outputs =
+                        1.0 / (1.0 + (-4.9 * node.sum_inputs).exp());
                 }
             }
         }
-
 
         // Get output nodes
         let mut outputs = vec![];
@@ -319,27 +321,67 @@ impl Genome {
         let highest_inno_1 = other.genes.last().unwrap().innovation;
         let highest_inno_2 = self.genes.last().unwrap().innovation;
         let excess_amt: usize = if highest_inno_1 > highest_inno_2 {
-            self.genes.iter().filter(|gene| gene.innovation > highest_inno_1).count()
+            self.genes
+                .iter()
+                .filter(|gene| gene.innovation > highest_inno_1)
+                .count()
         } else {
-            other.genes.iter().filter(|gene| gene.innovation > highest_inno_2).count()
+            other
+                .genes
+                .iter()
+                .filter(|gene| gene.innovation > highest_inno_2)
+                .count()
         };
 
-        let disjoint_1 = self.genes.iter().filter(|gene| other.genes.iter().find(|other_gene| other_gene.innovation == gene.innovation).is_none()).count();
-        let disjoint_2 = other.genes.iter().filter(|gene| self.genes.iter().find(|other_gene| other_gene.innovation == gene.innovation).is_none()).count();
+        let disjoint_1 = self
+            .genes
+            .iter()
+            .filter(|gene| {
+                other
+                    .genes
+                    .iter()
+                    .find(|other_gene| other_gene.innovation == gene.innovation)
+                    .is_none()
+            })
+            .count();
+        let disjoint_2 = other
+            .genes
+            .iter()
+            .filter(|gene| {
+                self.genes
+                    .iter()
+                    .find(|other_gene| other_gene.innovation == gene.innovation)
+                    .is_none()
+            })
+            .count();
 
-        let same_amt = self.genes.iter().filter(|gene| other.genes.iter().find(|other_gene| other_gene.innovation == gene.innovation).is_some()).count();
+        let same_amt = self
+            .genes
+            .iter()
+            .filter(|gene| {
+                other
+                    .genes
+                    .iter()
+                    .find(|other_gene| other_gene.innovation == gene.innovation)
+                    .is_some()
+            })
+            .count();
 
         // Average weight difference is abs(W)
         let average_weight_diff = self.genes.iter().fold(0.0, |acc, gene| {
-            let other_gene = other.genes.iter().find(|other_gene| other_gene.innovation == gene.innovation);
+            let other_gene = other
+                .genes
+                .iter()
+                .find(|other_gene| other_gene.innovation == gene.innovation);
             match other_gene {
                 None => acc,
                 Some(other_gene) => acc + (gene.weight - other_gene.weight).abs(),
             }
         }) / same_amt as f64;
 
-        (excess_amt / max_len) as f64 + ((disjoint_1 + disjoint_2) / max_len) as f64 + 0.4 * average_weight_diff
-
+        (excess_amt / max_len) as f64
+            + ((disjoint_1 + disjoint_2) / max_len) as f64
+            + 0.4 * average_weight_diff
     }
 }
 
@@ -351,19 +393,27 @@ fn get_node(id: usize, nodes: &Vec<NodeGene>) -> Option<&NodeGene> {
     }
 }
 
-fn find_layer(nodes: &Vec<NodeGene>, genes: &Vec<ConnectionGene>, node: Option<&NodeGene>) -> usize {
+fn find_layer(
+    nodes: &Vec<NodeGene>,
+    genes: &Vec<ConnectionGene>,
+    node: Option<&NodeGene>,
+) -> usize {
     match node {
         None => 0,
         Some(node) => {
             // Get all connections to node
-            let connections: Vec<&ConnectionGene> = genes.iter().filter(|gene| gene.out_node == node.id).collect();
+            let connections: Vec<&ConnectionGene> = genes
+                .iter()
+                .filter(|gene| gene.out_node == node.id)
+                .collect();
             if connections.len() == 0 {
-                return 1
+                return 1;
             } else {
                 // Find longest path
                 let mut max_layer = 0;
                 for connection in connections {
-                    let node_layer = find_layer(&nodes, genes, get_node(connection.in_node, &nodes));
+                    let node_layer =
+                        find_layer(&nodes, genes, get_node(connection.in_node, &nodes));
                     if node_layer > max_layer {
                         max_layer = node_layer;
                     }
@@ -378,7 +428,6 @@ impl Display for Genome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut output = String::new();
         output.push_str(&format!("Fitness: {} ", self.fitness));
-        output.push_str(&format!("Species: {} ", self.species_id));
         output.push_str(&format!("Layers: {} ", self.layers));
         output.push_str(&format!("Nodes:\n"));
         for node in &self.node {

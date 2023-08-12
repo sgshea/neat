@@ -47,7 +47,8 @@ impl Population {
         // Find champion from genomes
         self.genomes.sort();
         let best_genome = self.genomes.last().unwrap().clone();
-        if self.champion.is_none() || best_genome.fitness > self.champion.as_ref().unwrap().fitness {
+        if self.champion.is_none() || best_genome.fitness > self.champion.as_ref().unwrap().fitness
+        {
             self.champion = Some(best_genome.clone());
         }
     }
@@ -55,23 +56,23 @@ impl Population {
     fn cull_species(&mut self) {
         for specie in &mut self.species {
             specie.cull();
-            specie.fitness_sharing();
             specie.set_average();
         }
     }
 
     fn speciate(&mut self) {
         for specie in &mut self.species {
+            specie.representative = specie.select_genome();
             specie.genomes.clear();
         }
 
         for genome in &mut self.genomes {
             let mut found_specie = false;
-            for specie in &mut self.species {
+            'inner: for specie in &mut self.species {
                 if specie.match_genome(genome) {
                     specie.add_genome(genome.clone());
                     found_specie = true;
-                    break;
+                    break 'inner;
                 }
             }
             if !found_specie {
@@ -79,6 +80,9 @@ impl Population {
                 self.species.push(new_specie);
             }
         }
+
+        // Remove empty species
+        self.species.retain(|specie| !specie.genomes.is_empty());
     }
 
     pub fn evolve(&mut self) {
@@ -92,6 +96,7 @@ impl Population {
             .iter()
             .map(|specie| specie.average_fitness)
             .sum::<f64>();
+
         let mut children: Vec<Genome> = vec![];
         for specie in &mut self.species {
             let num_children =
@@ -106,9 +111,12 @@ impl Population {
         }
 
         self.genomes.clear();
-        self.genomes = children.clone();
+        self.genomes = children;
         self.speciate();
         self.age += 1;
+
+        //
+        println!("Species amount: {}", self.species.len());
     }
 
     pub fn evaluate(&mut self, f: &dyn Fn(&mut Genome, bool)) {

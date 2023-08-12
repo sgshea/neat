@@ -44,7 +44,7 @@ impl Specie {
         self.average_fitness = total / self.genomes.len() as f64;
     }
 
-    fn select_genome(&self) -> Genome {
+    pub fn select_genome(&self) -> Genome {
         let mut rng = rand::thread_rng();
 
         // try and choose a random genome above average fitness
