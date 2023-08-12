@@ -1,39 +1,41 @@
-#[derive(Debug)]
+use std::collections::HashMap;
+
 pub struct InnovationRecord {
-    node_amount: usize,
-    connection_amount: usize,
-    species_amount: usize,
+    // Innovation number stored as a hashmap of (from, to) -> innovation
+    pub innovation_number: HashMap<(usize, usize), usize>,
+    pub num_nodes: usize,
 }
 
 impl InnovationRecord {
-    pub fn new(initial_amount: usize) -> InnovationRecord {
+
+    pub fn new() -> Self {
         InnovationRecord {
-            node_amount: initial_amount,
-            connection_amount: 0,
-            species_amount: 0,
+            innovation_number: HashMap::new(),
+            num_nodes: 0,
         }
     }
 
-    pub fn new_node(&mut self) -> usize {
-        let id = self.node_amount;
-        self.node_amount += 1;
-        id
+    pub fn has_innovation(&self, from: usize, to: usize) -> bool {
+        self.innovation_number.contains_key(&(from, to))
     }
 
-    pub fn new_connection(&mut self) -> usize {
-        let id = self.connection_amount;
-        self.connection_amount += 1;
-        id
+    // Returns id of innovation
+    // If innovation already exists, returns existing innovation
+    pub fn new_innovation(&mut self, from: usize, to: usize) -> usize {
+        let innovation = self.innovation_number.get(&(from, to));
+        match innovation {
+            Some(innovation) => *innovation,
+            None => {
+                let innovation = self.innovation_number.len();
+                self.innovation_number.insert((from, to), innovation);
+                innovation
+            }
+        }
     }
 
-    // Sometimes needed when checking for cyclic graph
-    pub fn remove_last_connection(&mut self) {
-        self.connection_amount -= 1;
-    }
-
-    pub fn new_species(&mut self) -> usize {
-        let id = self.species_amount;
-        self.species_amount += 1;
-        id
+    pub fn new_node_innovation(&mut self) -> usize {
+        let innovation = self.num_nodes;
+        self.num_nodes += 1;
+        innovation
     }
 }
