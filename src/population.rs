@@ -53,13 +53,6 @@ impl Population {
         }
     }
 
-    fn cull_species(&mut self) {
-        for specie in &mut self.species {
-            specie.cull();
-            specie.set_average();
-        }
-    }
-
     fn speciate(&mut self) {
         for specie in &mut self.species {
             specie.representative = specie.select_genome();
@@ -89,25 +82,31 @@ impl Population {
         self.find_best_genome();
         let previous_best = self.champion.clone().unwrap();
 
-        self.cull_species();
+        // Adjust fitness for species
+        for specie in &mut self.species {
+            specie.fitness_sharing();
+        }
 
-        let average_sum = self
-            .species
+        let global_avg_fitness = self
+            .genomes
             .iter()
-            .map(|specie| specie.average_fitness)
-            .sum::<f64>();
+            .fold(0.0, |acc, genome| acc + genome.fitness)
+            / self.genomes.len() as f64;
 
         let mut children: Vec<Genome> = vec![];
         for specie in &mut self.species {
             let num_children =
-                (specie.average_fitness / average_sum * self.genomes.len() as f64).floor() as usize;
+                ((specie.calculate_average_fitness() / global_avg_fitness) * specie.genomes.len() as f64).floor() as usize;
             for _ in 0..num_children {
                 let child = specie.make_child(&mut self.innovation_record);
                 children.push(child);
             }
         }
         while children.len() < self.genomes.len() {
-            children.push(previous_best.clone());
+            // Mutate a random new genome from the champion
+            let mut new_genome = previous_best.clone();
+            new_genome.mutate(&mut self.innovation_record);
+            children.push(new_genome);
         }
 
         self.genomes.clear();

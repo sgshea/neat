@@ -32,9 +32,8 @@ fn eval_genomes(genome: &mut Genome, display: bool) {
 fn main() {
     let mut population = population::Population::new(150, 2, 1, 0);
 
-    for _ in 0..100 {
+    for _ in 0..65 {
         population.evaluate(&eval_genomes);
-        population.evolve();
     }
 
     if let Some(champion) = population.champion {

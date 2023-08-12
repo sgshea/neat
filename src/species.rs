@@ -9,7 +9,7 @@ pub struct Specie {
     pub champion: Genome,
     pub representative: Genome,
     pub average_fitness: f64,
-    pub staleness: usize,
+    pub stagnation: usize,
 }
 
 impl Specie {
@@ -22,47 +22,52 @@ impl Specie {
             champion: representative.clone(),
             representative,
             average_fitness,
-            staleness: 0,
+            stagnation: 0,
         }
     }
 
     // Does genome fit in species
     pub fn match_genome(&self, genome: &Genome) -> bool {
-        self.representative.compatability_distance(genome) < 4.0
+        self.representative.compatability_distance(genome) < 2.0
     }
 
     pub fn add_genome(&mut self, genome: Genome) {
         self.genomes.push(genome);
     }
 
-    pub fn set_average(&mut self) {
-        let mut total = 0.0;
-        for genome in &self.genomes {
-            total += genome.fitness;
+    // Calculates average fitness of species
+    pub fn calculate_average_fitness(&mut self) -> f64 {
+        let genome_count = self.genomes.len() as f64;
+        if genome_count == 0.0 {
+            self.average_fitness = 0.0;
+            return 0.0;
+        }
+        let total = self.genomes.iter().fold(0.0, |acc, genome| acc + genome.fitness);
+
+        let fitness = total / genome_count;
+
+        // Check stagnation
+        if fitness > self.average_fitness {
+            self.stagnation = 0;
+        } else {
+            self.stagnation += 1;
         }
 
-        self.average_fitness = total / self.genomes.len() as f64;
+        self.average_fitness = fitness;
+        fitness
     }
 
     pub fn select_genome(&self) -> Genome {
         let mut rng = rand::thread_rng();
-
-        // try and choose a random genome above average fitness
-        for _ in 0..self.genomes.len() {
-            let genome = self.genomes.choose(&mut rng).unwrap();
-            if genome.fitness > self.average_fitness {
-                return genome.clone();
-            }
-        }
-
-        // if none was found just use champion
-        self.champion.clone()
+        self.genomes.choose(&mut rng).unwrap().clone()
     }
 
     pub fn make_child(&self, innovation_record: &mut InnovationRecord) -> Genome {
         let mut rng = rand::thread_rng();
         let mut child = if rng.gen::<f64>() < 0.25 {
-            self.select_genome()
+            let mut parent = self.select_genome();
+            parent.mutate(innovation_record);
+            parent
         } else {
             let mut parent_1 = self.select_genome();
             let mut parent_2 = self.select_genome();

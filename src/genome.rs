@@ -120,13 +120,13 @@ impl Genome {
                 gene.mutate_weight();
             }
         }
+        // Mutate add node 5%
+        if rng.gen::<f64>() < 0.1 {
+            self.add_node(innovation_record);
+        }
         // Mutate add connection 5%
         if rng.gen::<f64>() < 0.15 {
             self.add_connection(innovation_record);
-        }
-        // Mutate add node 5%
-        if rng.gen::<f64>() < 0.08 {
-            self.add_node(innovation_record);
         }
     }
 
@@ -379,9 +379,9 @@ impl Genome {
             }
         }) / same_amt as f64;
 
-        (excess_amt / max_len) as f64
+        ((excess_amt / max_len) as f64
             + ((disjoint_1 + disjoint_2) / max_len) as f64
-            + 0.4 * average_weight_diff
+            + 0.4 * average_weight_diff)
     }
 }
 
