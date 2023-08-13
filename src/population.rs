@@ -43,10 +43,26 @@ impl Population {
         population
     }
 
+    pub fn get_info(&self) -> String {
+        let mut info = String::new();
+        info.push_str(&format!("Population Size: {}\n", self.population_size));
+        info.push_str(&format!("Species: {}\n", self.species.len()));
+        info.push_str(&format!("Age: {}\n", self.age));
+        info.push_str(&format!("Champion: {}\n", self.champion.as_ref().unwrap().fitness));
+        // Global average fitness
+        let global_avg_fitness = self
+            .genomes
+            .iter()
+            .fold(0.0, |acc, genome| acc + genome.fitness)
+            / self.genomes.len() as f64;
+        info.push_str(&format!("Global Average Fitness: {}\n", global_avg_fitness));
+        info
+    }
+
     fn find_best_genome(&mut self) {
         // Find champion from genomes
         self.genomes.sort();
-        let best_genome = self.genomes.last().unwrap().clone();
+        let best_genome = self.genomes.first().unwrap();
         if self.champion.is_none() || best_genome.fitness > self.champion.as_ref().unwrap().fitness
         {
             self.champion = Some(best_genome.clone());
@@ -54,6 +70,9 @@ impl Population {
     }
 
     fn speciate(&mut self) {
+        // Remove empty species
+        self.species.retain(|specie| !specie.genomes.is_empty());
+
         for specie in &mut self.species {
             specie.representative = specie.select_genome();
             specie.genomes.clear();
@@ -82,11 +101,6 @@ impl Population {
         self.find_best_genome();
         let previous_best = self.champion.clone().unwrap();
 
-        // Adjust fitness for species
-        for specie in &mut self.species {
-            specie.fitness_sharing();
-        }
-
         let global_avg_fitness = self
             .genomes
             .iter()
@@ -95,6 +109,10 @@ impl Population {
 
         let mut children: Vec<Genome> = vec![];
         for specie in &mut self.species {
+            specie.cull();
+            if specie.genomes.len() == 0 {
+                continue;
+            }
             let num_children =
                 ((specie.calculate_average_fitness() / global_avg_fitness) * specie.genomes.len() as f64).floor() as usize;
             for _ in 0..num_children {
@@ -109,13 +127,11 @@ impl Population {
             children.push(new_genome);
         }
 
+
         self.genomes.clear();
         self.genomes = children;
         self.speciate();
         self.age += 1;
-
-        //
-        println!("Species amount: {}", self.species.len());
     }
 
     pub fn evaluate(&mut self, f: &dyn Fn(&mut Genome, bool)) {

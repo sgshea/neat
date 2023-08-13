@@ -27,8 +27,8 @@ impl Specie {
     }
 
     // Does genome fit in species
-    pub fn match_genome(&self, genome: &Genome) -> bool {
-        self.representative.compatability_distance(genome) < 2.0
+    pub fn match_genome(&mut self, genome: &Genome) -> bool {
+        self.representative.compatability_distance(genome) < 4.0
     }
 
     pub fn add_genome(&mut self, genome: Genome) {
@@ -72,7 +72,7 @@ impl Specie {
             let mut parent_1 = self.select_genome();
             let mut parent_2 = self.select_genome();
 
-            if parent_1 > parent_2 {
+            if parent_1 < parent_2 {
                 parent_1.crossover(parent_2)
             } else {
                 parent_2.crossover(parent_1)
@@ -84,14 +84,7 @@ impl Specie {
 
     pub fn cull(&mut self) {
         self.genomes.sort();
-        // Remove first half (lowest fitness)
-        self.genomes.drain(0..self.genomes.len() / 2);
-    }
-
-    pub fn fitness_sharing(&mut self) {
-        let length = self.genomes.len() as f64;
-        for genome in &mut self.genomes {
-            genome.fitness /= length;
-        }
+        // Remove second half (lowest fitness)
+        self.genomes.truncate(self.genomes.len() / 2);
     }
 }

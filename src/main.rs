@@ -16,28 +16,27 @@ fn eval_genomes(genome: &mut Genome, display: bool) {
 
     let mut fitness = 0.0;
     for (xi, xo) in &xor {
-        println!("input: {:?}", xi);
         let output = genome.feed_forward(xi.clone());
-        println!("output: {:?}", output);
         fitness += (xo[0] - output[0]).powi(2);
         if display {
-            println!("genome: {}", genome);
+            println!("input: {:?}", xi);
+            println!("output: {:?}", output);
             println!("error: {}\n\n", (output[0] - xo[0]).powf(2.0));
         }
     }
     genome.fitness = 4.0 - fitness;
-    println!("fitness: {}", genome.fitness);
 }
 
 fn main() {
-    let mut population = population::Population::new(150, 2, 1, 0);
 
-    for _ in 0..65 {
-        population.evaluate(&eval_genomes);
-    }
-
-    if let Some(champion) = population.champion {
-        println!("\n");
-        eval_genomes(&mut champion.clone(), true);
+    for _ in 0..10 {
+        let mut population = population::Population::new(150, 2, 1, 0);
+        for _ in 0..35 {
+            population.evaluate(&eval_genomes);
+        }
+        if let Some(ref champion) = population.champion {
+            eval_genomes(&mut champion.clone(), false);
+        }
+        println!("{}", population.get_info());
     }
 }

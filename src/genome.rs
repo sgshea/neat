@@ -73,34 +73,26 @@ impl Genome {
     }
 
     pub fn crossover(&mut self, other: Genome) -> Genome {
-        let mut child = Genome::new_blank(self.inputs, self.outputs, self.bias_node);
+        let mut child = self.clone();
+        child.genes.clear();
         let mut rng = rand::thread_rng();
 
-        // Genes to be inherited
-        let mut child_genes: Vec<&ConnectionGene> = vec![];
-
         for i in 0..self.genes.len() {
-            match self.matching_gene(&other, i) {
+            match self.matching_gene(&other, self.genes[i].innovation) {
                 None => {
-                    child_genes.push(&self.genes[i]);
+                    let cloned_gene = self.genes[i].clone();
+                    child.genes.push(cloned_gene);
                 }
                 Some(gene) => {
                     if rng.gen::<f64>() < 0.5 {
-                        child_genes.push(gene);
+                        let cloned_gene = self.genes[i].clone();
+                        child.genes.push(cloned_gene);
                     } else {
-                        child_genes.push(&self.genes[i]);
+                        let cloned_gene = gene.clone();
+                        child.genes.push(cloned_gene);
                     }
                 }
             }
-        }
-
-        // Add all of self's nodes
-        for node in &self.node {
-            child.node.push(node.clone());
-        }
-        // Add genes
-        for gene in child_genes {
-            child.genes.push(gene.clone());
         }
 
         child
@@ -121,11 +113,11 @@ impl Genome {
             }
         }
         // Mutate add node 5%
-        if rng.gen::<f64>() < 0.1 {
+        if rng.gen::<f64>() < 0.2 {
             self.add_node(innovation_record);
         }
         // Mutate add connection 5%
-        if rng.gen::<f64>() < 0.15 {
+        if rng.gen::<f64>() < 0.5 {
             self.add_connection(innovation_record);
         }
     }
@@ -182,6 +174,8 @@ impl Genome {
         let genes_len = self.genes.len();
         let connection = &mut self.genes[rng.gen_range(0..genes_len)];
         connection.enabled = false;
+        let old_weight = connection.weight;
+
         let node_id = innovation_record.new_node_innovation();
         // from layer
         let connection_ids: (usize, usize) = (connection.in_node, connection.out_node);
@@ -198,7 +192,7 @@ impl Genome {
         self.genes.push(ConnectionGene::new(
             connection_ids.0,
             node_id,
-            rng.gen_range(-5.0..5.0),
+            old_weight,
             innovation_record.new_innovation(connection_ids.0, node_id),
         ));
         self.genes.push(ConnectionGene::new(
@@ -450,13 +444,13 @@ impl PartialEq<Self> for Genome {
 
 impl PartialOrd<Self> for Genome {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.fitness.partial_cmp(&other.fitness)
+        other.fitness.partial_cmp(&self.fitness)
     }
 }
 
 impl Ord for Genome {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.fitness.partial_cmp(&other.fitness).unwrap()
+        other.fitness.partial_cmp(&self.fitness).unwrap()
     }
 }
 
@@ -513,11 +507,11 @@ mod tests {
         let mut genome_2 = Genome::new(2, 1, &mut innovation_record);
         genome_2.fitness = 10.0;
 
-        assert!(genome < genome_2);
+        assert!(genome > genome_2);
 
-        let mut vec = vec![genome_2, genome];
-        assert_eq!(vec[1].fitness, 5.0);
+        let mut vec = vec![genome, genome_2];
+        assert_eq!(vec[0].fitness, 5.0);
         vec.sort();
-        assert_eq!(vec[1].fitness, 10.0);
+        assert_eq!(vec[0].fitness, 10.0);
     }
 }
