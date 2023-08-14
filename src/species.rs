@@ -28,7 +28,7 @@ impl Specie {
 
     // Does genome fit in species
     pub fn match_genome(&mut self, genome: &Genome) -> bool {
-        self.representative.compatability_distance(genome) < 4.0
+        self.representative.compatability_distance(genome) < 1.5
     }
 
     pub fn add_genome(&mut self, genome: Genome) {

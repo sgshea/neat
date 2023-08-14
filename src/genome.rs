@@ -307,75 +307,35 @@ impl Genome {
     }
 
     pub fn compatability_distance(&self, other: &Self) -> f64 {
-        // CD = E + D + abs(W)
-        // Where E is excess genes (amount with a higher inno number than exists in other)
-        // D is disjoint genes (other non matching)
-        let max_len = max(self.genes.len(), other.genes.len());
-        // Assume called genome is fitter
-        let highest_inno_1 = other.genes.last().unwrap().innovation;
-        let highest_inno_2 = self.genes.last().unwrap().innovation;
-        let excess_amt: usize = if highest_inno_1 > highest_inno_2 {
-            self.genes
-                .iter()
-                .filter(|gene| gene.innovation > highest_inno_1)
-                .count()
-        } else {
-            other
-                .genes
-                .iter()
-                .filter(|gene| gene.innovation > highest_inno_2)
-                .count()
-        };
+        // let c1 = 1.0;
+        let c2 = 1.0;
+        let c3 = 0.4;
 
-        let disjoint_1 = self
-            .genes
+        let n1 = self.genes.len() as f64;
+        let n2 = other.genes.len() as f64;
+        let n = f64::max(n1, n2);
+
+        if n == 0.0 {
+            return 0.0;
+        }
+
+        let matching_genes = self.genes
             .iter()
-            .filter(|gene| {
-                other
-                    .genes
-                    .iter()
-                    .find(|other_gene| other_gene.innovation == gene.innovation)
-                    .is_none()
-            })
-            .count();
-        let disjoint_2 = other
-            .genes
-            .iter()
-            .filter(|gene| {
-                self.genes
-                    .iter()
-                    .find(|other_gene| other_gene.innovation == gene.innovation)
-                    .is_none()
-            })
-            .count();
+            .filter(|gene| other.genes.iter().any(|other_gene| other_gene.innovation == gene.innovation))
+            .collect::<Vec<&ConnectionGene>>();
 
-        let same_amt = self
-            .genes
-            .iter()
-            .filter(|gene| {
-                other
-                    .genes
-                    .iter()
-                    .find(|other_gene| other_gene.innovation == gene.innovation)
-                    .is_some()
-            })
-            .count();
+        let disjoint_num = n1 + n2 - (2 * matching_genes.len()) as f64;
 
-        // Average weight difference is abs(W)
-        let average_weight_diff = self.genes.iter().fold(0.0, |acc, gene| {
-            let other_gene = other
-                .genes
-                .iter()
-                .find(|other_gene| other_gene.innovation == gene.innovation);
-            match other_gene {
-                None => acc,
-                Some(other_gene) => acc + (gene.weight - other_gene.weight).abs(),
-            }
-        }) / same_amt as f64;
+        let avg_weight_diff = matching_genes.iter()
+            .fold(0.0, |acc, gene| acc +
+                (gene.weight - other.genes.iter().find(|other_gene|
+                    other_gene.innovation == gene.innovation)
+                    .unwrap()
+                    .weight)
+                    .abs())
+            / matching_genes.len() as f64;
 
-        ((excess_amt / max_len) as f64
-            + ((disjoint_1 + disjoint_2) / max_len) as f64
-            + 0.4 * average_weight_diff)
+        (c2 * disjoint_num) / n + (c3 * avg_weight_diff)
     }
 }
 
