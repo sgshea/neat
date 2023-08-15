@@ -1,3 +1,4 @@
+use macroquad::rand::ChooseRandom;
 use crate::genome::Genome;
 use crate::innovation_record::InnovationRecord;
 use crate::species::Specie;
@@ -48,7 +49,9 @@ impl Population {
         info.push_str(&format!("Population Size: {}\n", self.population_size));
         info.push_str(&format!("Species: {}\n", self.species.len()));
         info.push_str(&format!("Age: {}\n", self.age));
-        info.push_str(&format!("Champion: {}\n", self.champion.as_ref().unwrap().fitness));
+        let champion = self.champion.as_ref().unwrap();
+        info.push_str(&format!("Champion: {}, Adjusted: {}, Nodes: {}, Genes: {}\n",
+                               champion.fitness, champion.adj_fitness, champion.node.len(), champion.genes.len()));
         // Global average fitness
         let global_avg_fitness = self
             .genomes
@@ -57,16 +60,6 @@ impl Population {
             / self.genomes.len() as f64;
         info.push_str(&format!("Global Average Fitness: {}\n", global_avg_fitness));
         info
-    }
-
-    fn find_best_genome(&mut self) {
-        // Find champion from genomes
-        self.genomes.sort();
-        let best_genome = self.genomes.first().unwrap();
-        if self.champion.is_none() || best_genome.fitness > self.champion.as_ref().unwrap().fitness
-        {
-            self.champion = Some(best_genome.clone());
-        }
     }
 
     fn speciate(&mut self) {
@@ -97,41 +90,57 @@ impl Population {
         self.species.retain(|specie| !specie.genomes.is_empty());
     }
 
-    pub fn evolve(&mut self) {
-        self.find_best_genome();
-        let previous_best = self.champion.clone().unwrap();
-
-        let global_avg_fitness = self
-            .genomes
-            .iter()
-            .fold(0.0, |acc, genome| acc + genome.fitness)
-            / self.genomes.len() as f64;
-
-        let mut children: Vec<Genome> = vec![];
+    fn generate_generation(&mut self) -> Vec<Genome> {
+        // Adjust fitness
+        let mut total_adjusted_fitness = 0.0;
         for specie in &mut self.species {
-            specie.cull();
-            if specie.genomes.len() == 0 {
+            total_adjusted_fitness += specie.calculate_average_fitness();
+        }
+        total_adjusted_fitness /= self.population_size as f64;
+
+        // Generate new generation
+        let mut new_genomes = vec![];
+        for specie in &mut self.species {
+            if specie.stagnation > 15 || specie.genomes.is_empty() {
                 continue;
             }
-            let num_children =
-                ((specie.calculate_average_fitness() / global_avg_fitness) * self.genomes.len() as f64).floor() as usize;
-            for _ in 0..num_children {
-                let child = specie.make_child(&mut self.innovation_record);
-                children.push(child);
+            let specie_size = specie.cull();
+            // dbg!(specie_size);
+            // dbg!(specie.average_fitness);
+            let mut offspring_num = ((specie.average_fitness / total_adjusted_fitness) * specie_size as f64) as usize;
+            // dbg!(offspring_num);
+            if offspring_num < 1 {
+                offspring_num = 1;
+            }
+            for _ in 0..offspring_num {
+                let new_genome = specie.make_child(&mut self.innovation_record);
+                new_genomes.push(new_genome);
             }
         }
-        while children.len() < self.genomes.len() {
-            // Mutate a random new genome from the champion
-            let mut new_genome = previous_best.clone();
-            new_genome.mutate(&mut self.innovation_record);
-            children.push(new_genome);
+
+        // Add new genomes to fill up population
+        while new_genomes.len() < self.population_size {
+            let mut genome = self.genomes.choose().unwrap().clone();
+            genome.mutate(&mut self.innovation_record);
+            new_genomes.push(genome);
         }
 
+        new_genomes
+    }
 
-        self.genomes = vec![];
-        children.sort();
-        children.truncate(self.population_size);
-        self.genomes = children.clone();
+    pub fn evolve(&mut self) {
+        // Get new champion
+        self.genomes.sort();
+        let champion = self.genomes[0].clone();
+        if self.champion.is_none() || champion.fitness > self.champion.as_ref().unwrap().fitness {
+            self.champion = Some(champion.clone());
+        }
+
+        // Generate new generation
+        let mut new_genomes = self.generate_generation();
+        // Add champion to new generation
+        new_genomes.push(champion);
+        self.genomes = new_genomes;
         self.speciate();
         self.age += 1;
     }

@@ -16,7 +16,11 @@ pub struct Genome {
     outputs: usize,
     layers: usize,
 
+    // keep regular fitness so we can output it
     pub fitness: f64,
+
+    // adj fitness is fitness after fitness sharing
+    pub adj_fitness: f64,
 }
 
 impl Genome {
@@ -29,6 +33,7 @@ impl Genome {
             layers: 2,
             bias_node: 0,
             fitness: 0.0,
+            adj_fitness: 0.0,
         };
 
         for _ in 0..inputs {
@@ -69,6 +74,7 @@ impl Genome {
             layers: 2,
             bias_node: bias_id,
             fitness: 0.0,
+            adj_fitness: 0.0,
         }
     }
 

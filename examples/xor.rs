@@ -24,7 +24,7 @@ fn eval_genomes(genome: &mut Genome, display: bool) {
 
 fn main() {
 
-    for _ in 0..10 {
+    for _ in 0..45 {
         let mut population = population::Population::new(50, 2, 1, 0);
         for _ in 0..45 {
             population.evaluate(&eval_genomes);

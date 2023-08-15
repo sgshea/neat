@@ -28,7 +28,7 @@ impl Specie {
 
     // Does genome fit in species
     pub fn match_genome(&mut self, genome: &Genome) -> bool {
-        self.representative.compatability_distance(genome) < 1.5
+        self.representative.compatability_distance(genome) < 2.0
     }
 
     pub fn add_genome(&mut self, genome: Genome) {
@@ -36,13 +36,16 @@ impl Specie {
     }
 
     // Calculates average fitness of species
+    // Returns sum of adj fitness
     pub fn calculate_average_fitness(&mut self) -> f64 {
         let genome_count = self.genomes.len() as f64;
-        if genome_count == 0.0 {
-            self.average_fitness = 0.0;
-            return 0.0;
-        }
-        let total = self.genomes.iter().fold(0.0, |acc, genome| acc + genome.fitness);
+
+        // Fitness sharing
+        self.genomes.iter_mut().for_each(|genome| {
+            genome.adj_fitness = genome.fitness / genome_count;
+        });
+
+        let total = self.genomes.iter().fold(0.0, |acc, genome| acc + genome.adj_fitness);
 
         let fitness = total / genome_count;
 
@@ -54,7 +57,7 @@ impl Specie {
         }
 
         self.average_fitness = fitness;
-        fitness
+        total
     }
 
     pub fn select_genome(&self) -> Genome {
@@ -82,9 +85,13 @@ impl Specie {
         child
     }
 
-    pub fn cull(&mut self) {
+    pub fn cull(&mut self) -> usize {
+        let prev_len = self.genomes.len();
         self.genomes.sort();
         // Remove second half (lowest fitness)
-        self.genomes.truncate(self.genomes.len() / 2);
+        if prev_len > 3 {
+            self.genomes.truncate(self.genomes.len() / 2);
+        }
+        prev_len
     }
 }
