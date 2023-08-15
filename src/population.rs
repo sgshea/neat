@@ -3,7 +3,7 @@ use crate::innovation_record::InnovationRecord;
 use crate::species::Specie;
 
 pub struct Population {
-    genomes: Vec<Genome>,
+    pub genomes: Vec<Genome>,
     species: Vec<Specie>,
 
     // Includes bias node
@@ -75,7 +75,7 @@ impl Population {
 
         for specie in &mut self.species {
             specie.representative = specie.select_genome();
-            specie.genomes.clear();
+            specie.genomes = vec![];
         }
 
         for genome in &mut self.genomes {
@@ -114,7 +114,7 @@ impl Population {
                 continue;
             }
             let num_children =
-                ((specie.calculate_average_fitness() / global_avg_fitness) * specie.genomes.len() as f64).floor() as usize;
+                ((specie.calculate_average_fitness() / global_avg_fitness) * self.genomes.len() as f64).floor() as usize;
             for _ in 0..num_children {
                 let child = specie.make_child(&mut self.innovation_record);
                 children.push(child);
@@ -128,8 +128,10 @@ impl Population {
         }
 
 
-        self.genomes.clear();
-        self.genomes = children;
+        self.genomes = vec![];
+        children.sort();
+        children.truncate(self.population_size);
+        self.genomes = children.clone();
         self.speciate();
         self.age += 1;
     }
@@ -138,6 +140,11 @@ impl Population {
         for genome in &mut self.genomes {
             f(genome, false);
         }
+        self.evolve();
+    }
+
+    pub fn evaluate_whole(&mut self, f: &dyn Fn(&mut Vec<Genome>, bool)) {
+        f(&mut self.genomes, false);
         self.evolve();
     }
 }

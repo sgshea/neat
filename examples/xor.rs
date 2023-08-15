@@ -1,10 +1,5 @@
-use crate::genome::Genome;
-
-mod genes;
-mod genome;
-mod innovation_record;
-mod population;
-mod species;
+use neat::genome::Genome;
+use neat::population;
 
 fn eval_genomes(genome: &mut Genome, display: bool) {
     let xor = vec![
@@ -30,8 +25,8 @@ fn eval_genomes(genome: &mut Genome, display: bool) {
 fn main() {
 
     for _ in 0..10 {
-        let mut population = population::Population::new(150, 2, 1, 0);
-        for _ in 0..35 {
+        let mut population = population::Population::new(50, 2, 1, 0);
+        for _ in 0..45 {
             population.evaluate(&eval_genomes);
         }
         if let Some(ref champion) = population.champion {
