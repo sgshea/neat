@@ -24,14 +24,24 @@ fn eval_genomes(genome: &mut Genome, display: bool) {
 
 fn main() {
 
+    let mut best_champion: Option<Genome> = None;
     for _ in 0..45 {
         let mut population = population::Population::new(50, 2, 1, 0);
         for _ in 0..45 {
             population.evaluate(&eval_genomes);
         }
         if let Some(ref champion) = population.champion {
+            if best_champion.is_none() || champion.fitness > best_champion.as_ref().unwrap().fitness {
+                best_champion = Some(champion.clone());
+            }
             eval_genomes(&mut champion.clone(), false);
         }
         println!("{}", population.get_info());
+    }
+
+    if best_champion.is_some() {
+        let champ = best_champion.as_ref().unwrap();
+        println!("Best Champion: {}", champ);
+        eval_genomes(&mut champ.clone(), true);
     }
 }
