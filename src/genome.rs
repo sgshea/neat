@@ -1,519 +1,483 @@
-use crate::activation::Activation;
-use petgraph::data::DataMap;
-use petgraph::dot::{Config, Dot};
-use petgraph::graph::{DiGraph, EdgeIndex, NodeIndex};
-use petgraph::{algo, Direction};
-use rand::prelude::SliceRandom;
-use rand::seq::IteratorRandom;
-use rand::Rng;
-use std::collections::HashMap;
-
-use crate::connection::Connection;
+use crate::genes::{ActivationFunction, ConnectionGene, NodeGene, NodeType};
 use crate::innovation_record::InnovationRecord;
-use crate::node::{Node, NodeType};
+use rand::Rng;
+use std::cmp::{max, Ordering};
+use std::fmt::Display;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Genome {
-    // Directed graph
-    pub network_graph: DiGraph<Node, Connection>,
-    input_nodes: usize,
-    output_nodes: usize,
-    hidden_nodes: usize,
+    pub genes: Vec<ConnectionGene>,
+    pub node: Vec<NodeGene>,
+    // Includes bias node
+    inputs: usize,
+    // Bias node index
+    bias_node: usize,
+
+    outputs: usize,
+    layers: usize,
+
+    // keep regular fitness so we can output it
+    pub fitness: f64,
+
+    // adj fitness is fitness after fitness sharing
+    pub adj_fitness: f64,
 }
 
 impl Genome {
-    fn new_from_graph(
-        network_graph: DiGraph<Node, Connection>,
-        input_nodes: usize,
-        output_nodes: usize,
-        hidden_nodes: usize,
-    ) -> Self {
-        Self {
-            network_graph,
-            input_nodes,
-            output_nodes,
-            hidden_nodes,
+    pub fn new(inputs: usize, outputs: usize, innovation_record: &mut InnovationRecord) -> Self {
+        let mut genome = Self {
+            genes: vec![],
+            node: vec![],
+            inputs: inputs + 1,
+            outputs,
+            layers: 2,
+            bias_node: 0,
+            fitness: 0.0,
+            adj_fitness: 0.0,
+        };
+
+        for _ in 0..inputs {
+            genome.node.push(NodeGene::new(
+                innovation_record.new_node_innovation(),
+                NodeType::Input,
+                1,
+                0.0,
+                0.0,
+            ));
         }
-    }
-
-    // Create a disconnected graph
-    pub fn new_disconnected(input_nodes: usize, output_nodes: usize, hidden_nodes: usize) -> Self {
-        let mut network_graph = DiGraph::<Node, Connection>::new();
-
-        for i in 0..input_nodes {
-            network_graph.add_node(Node::new(i, NodeType::Input));
-        }
-
-        network_graph.add_node(Node::new(input_nodes, NodeType::Bias));
-
-        for i in 0..output_nodes {
-            network_graph.add_node(Node::new(i + input_nodes + 1, NodeType::Output));
-        }
-
-        for i in 0..hidden_nodes {
-            network_graph.add_node(Node::new(
-                i + input_nodes + output_nodes + 1,
-                NodeType::Hidden,
+        // Push bias node
+        let bias_id = innovation_record.new_node_innovation();
+        genome
+            .node
+            .push(NodeGene::new(bias_id, NodeType::Bias, 1, 0.0, 0.0));
+        genome.bias_node = bias_id;
+        for _ in 0..outputs {
+            genome.node.push(NodeGene::new(
+                innovation_record.new_node_innovation(),
+                NodeType::Output,
+                2,
+                0.0,
+                0.0,
             ));
         }
 
-        Self {
-            network_graph,
-            input_nodes,
-            output_nodes,
-            hidden_nodes,
-        }
-    }
-
-    // Create a full graph
-    pub fn new(
-        input_nodes: usize,
-        output_nodes: usize,
-        hidden_nodes: usize,
-        innovation_record: &mut InnovationRecord,
-    ) -> Self {
-        let mut genome = Self::new_disconnected(input_nodes, output_nodes, hidden_nodes);
-
-        let rng = &mut rand::thread_rng();
-
-        for i in 0..input_nodes {
-            for j in 0..hidden_nodes {
-                let innovation_number = innovation_record.new_connection();
-                genome.network_graph.add_edge(
-                    NodeIndex::new(i),
-                    NodeIndex::new(input_nodes + output_nodes + j + 1),
-                    Connection::new(innovation_number, rng.gen_range(-2.0..2.0)),
-                );
-            }
-        }
-
-        if hidden_nodes > 0 {
-            for i in 0..hidden_nodes {
-                for j in 0..output_nodes {
-                    let innovation_number = innovation_record.new_connection();
-                    genome.network_graph.add_edge(
-                        NodeIndex::new(input_nodes + output_nodes + i + 1),
-                        NodeIndex::new(input_nodes + j + 1),
-                        Connection::new(innovation_number, rng.gen_range(-2.0..2.0)),
-                    );
-                }
-            }
-        } else {
-            for i in 0..input_nodes {
-                for j in 0..output_nodes {
-                    let innovation_number = innovation_record.new_connection();
-                    genome.network_graph.add_edge(
-                        NodeIndex::new(i),
-                        NodeIndex::new(input_nodes + j + 1),
-                        Connection::new(innovation_number, rng.gen_range(-2.0..2.0)),
-                    );
-                }
-            }
-        }
-
+        genome.fully_connect(innovation_record);
         genome
     }
 
-    // Mutation where connection is added
-    fn add_connection(&mut self, innovation_record: &mut InnovationRecord) {
-        // Get possible connections
-        let network_graph = &self.network_graph.clone();
-
-        // This should probably be changed TODO
-        // But it works
-        let possible_conn: Vec<(NodeIndex, NodeIndex)> = network_graph
-            .node_indices()
-            .flat_map(|node| {
-                let neighbors: Vec<NodeIndex> = network_graph.neighbors(node).collect();
-                let node_type = network_graph.node_weight(node).unwrap().get_type();
-                let unconnected_nodes = network_graph.node_indices().filter(move |&n| {
-                    // Conditions to restrict connections
-                    let unconnected_node = network_graph.node_weight(n).unwrap().get_type();
-                    let ans = match node_type {
-                        NodeType::Input => {
-                            unconnected_node != NodeType::Input
-                                && unconnected_node != NodeType::Bias
-                        }
-                        NodeType::Output => false, // output cannot connect to anything
-                        NodeType::Hidden => {
-                            unconnected_node != NodeType::Hidden
-                                && unconnected_node != NodeType::Bias
-                                && unconnected_node != NodeType::Input
-                        }
-                        NodeType::Bias => {
-                            unconnected_node != NodeType::Bias
-                                && unconnected_node != NodeType::Input
-                        }
-                    };
-                    ans && n != node && !neighbors.contains(&n)
-                });
-                unconnected_nodes.map(move |unconnected_node| (node, unconnected_node))
-            })
-            .collect();
-
-        // We will try to add connection and if it creates a cycle, remove it
-        match possible_conn.choose(&mut rand::thread_rng()) {
-            None => {} // Do nothing
-            Some((from, to)) => {
-                let new_connection = self.network_graph.add_edge(
-                    *from,
-                    *to,
-                    Connection::new(innovation_record.new_connection(), 1.0),
-                );
-                if algo::is_cyclic_directed(&self.network_graph) {
-                    self.network_graph.remove_edge(new_connection);
-                    innovation_record.remove_last_connection();
-                }
-            }
-        };
-    }
-
-    // Mutation where node is added
-    fn add_node(&mut self, innovation_record: &mut InnovationRecord) {
-        // Choose random edge
-        let rand_edge = self
-            .network_graph
-            .edge_indices()
-            .choose(&mut rand::thread_rng());
-
-        // Split connection into two, adding node in between
-        if let Some(edge) = rand_edge {
-            // Get NodeIndex (from, to) of edge
-            let (from, to) = self.network_graph.edge_endpoints(edge).unwrap();
-
-            let innovation_id = innovation_record.new_node();
-
-            // Create new node
-            let new_node = self
-                .network_graph
-                .add_node(Node::new(innovation_id, NodeType::Hidden));
-
-            let innovation_id = innovation_record.new_connection();
-            // Create new edges
-            // Input edge gets weight of 1.0
-            self.network_graph
-                .add_edge(from, new_node, Connection::new(innovation_id, 1.0));
-
-            let innovation_id = innovation_record.new_connection();
-            // Output edge gets weight of old edge
-            self.network_graph.add_edge(
-                new_node,
-                to,
-                Connection::new(
-                    innovation_id,
-                    self.network_graph.edge_weight(edge).unwrap().get_weight(),
-                ),
-            );
-
-            self.network_graph.remove_edge(edge);
+    fn new_blank(inputs: usize, outputs: usize, bias_id: usize) -> Self {
+        Self {
+            genes: vec![],
+            node: vec![],
+            inputs: inputs + 1,
+            outputs,
+            layers: 2,
+            bias_node: bias_id,
+            fitness: 0.0,
+            adj_fitness: 0.0,
         }
     }
 
-    // Helper function
-    // Collects genes that are matching, disjoint between self (fitter) and other genome
-    // Also returns all connections for each for further use
-    fn difference(
-        &self,
-        other: &Genome,
-    ) -> (
-        HashMap<usize, EdgeIndex>,
-        HashMap<usize, EdgeIndex>,
-        Vec<usize>,
-        Vec<usize>,
-        Vec<usize>,
-    ) {
-        // First collect all connections from each
-        let self_conn: HashMap<usize, EdgeIndex> = self
-            .network_graph
-            .edge_indices()
-            .map(|edge| {
-                (
-                    self.network_graph
-                        .edge_weight(edge)
-                        .unwrap()
-                        .get_innovation_id(),
-                    edge,
-                )
-            })
-            .collect();
-
-        let other_conn: HashMap<usize, EdgeIndex> = other
-            .network_graph
-            .edge_indices()
-            .map(|edge| {
-                (
-                    other
-                        .network_graph
-                        .edge_weight(edge)
-                        .unwrap()
-                        .get_innovation_id(),
-                    edge,
-                )
-            })
-            .collect();
-
-        // Get matching genes
-        let matching_genes: Vec<usize> = self_conn
-            .keys()
-            .filter(|key| other_conn.contains_key(key))
-            .map(|key| *key)
-            .collect();
-
-        // Get disjoint genes
-        let disjoint_genes: Vec<usize> = self_conn
-            .keys()
-            .filter(|key| !other_conn.contains_key(key))
-            .map(|key| *key)
-            .collect();
-
-        // Get other's disjoint genes
-        let other_disjoint: Vec<usize> = other_conn
-            .keys()
-            .filter(|key| !self_conn.contains_key(key))
-            .map(|key| *key)
-            .collect();
-
-        (
-            self_conn,
-            other_conn,
-            matching_genes,
-            disjoint_genes,
-            other_disjoint,
-        )
-    }
-
-    // crossover function
-    pub fn crossover(&self, other: &Genome) -> Genome {
+    pub fn crossover(&mut self, other: Genome) -> Genome {
+        let mut child = self.clone();
+        child.genes.clear();
         let mut rng = rand::thread_rng();
 
-        let (self_conn, other_conn, matching_genes, disjoint_genes, _) = self.difference(other);
-
-        let mut new_genes: Vec<(Connection, &Node, &Node)> = Vec::new();
-
-        // Random chance (50%)
-        for i in matching_genes {
-            // Choose a random connection gene to use and place in new_genes
-            let (from, to) = self.network_graph.edge_endpoints(self_conn[&i]).unwrap();
-            if rng.gen::<f32>() <= 0.50 {
-                new_genes.push((
-                    self.network_graph
-                        .edge_weight(self_conn[&i])
-                        .unwrap()
-                        .clone(),
-                    self.network_graph.node_weight(from).unwrap(),
-                    self.network_graph.node_weight(to).unwrap(),
-                ));
-            } else {
-                let (from, to) = self.network_graph.edge_endpoints(self_conn[&i]).unwrap();
-                new_genes.push((
-                    other
-                        .network_graph
-                        .edge_weight(other_conn[&i])
-                        .unwrap()
-                        .clone(),
-                    self.network_graph.node_weight(from).unwrap(),
-                    self.network_graph.node_weight(to).unwrap(),
-                ));
+        for i in 0..self.genes.len() {
+            match self.matching_gene(&other, self.genes[i].innovation) {
+                None => {
+                    let cloned_gene = self.genes[i].clone();
+                    child.genes.push(cloned_gene);
+                }
+                Some(gene) => {
+                    if rng.gen::<f64>() < 0.5 {
+                        let cloned_gene = self.genes[i].clone();
+                        child.genes.push(cloned_gene);
+                    } else {
+                        let cloned_gene = gene.clone();
+                        child.genes.push(cloned_gene);
+                    }
+                }
             }
         }
 
-        // Now handle disjoint/excess genes
-        // We assume the genome being called is the more fit one and take it's excess genes
-        for i in disjoint_genes {
-            let (from, to) = self.network_graph.edge_endpoints(self_conn[&i]).unwrap();
-            new_genes.push((
-                self.network_graph
-                    .edge_weight(self_conn[&i])
-                    .unwrap()
-                    .clone(),
-                self.network_graph.node_weight(from).unwrap(),
-                self.network_graph.node_weight(to).unwrap(),
-            ));
-        }
-
-        // Create new graph
-        let mut new_graph = DiGraph::<Node, Connection>::new();
-
-        // Keep track of adding new nodes
-        let mut added_nodes: HashMap<usize, NodeIndex> = HashMap::new();
-
-        // Add input/output/bias nodes
-        for node in self.network_graph.raw_nodes() {
-            if node.weight.get_type() == NodeType::Input
-                || node.weight.get_type() == NodeType::Output
-                || node.weight.get_type() == NodeType::Bias
-            {
-                let new_node =
-                    new_graph.add_node(Node::new(node.weight.get_id(), node.weight.get_type()));
-                added_nodes.insert(node.weight.get_id(), new_node);
-            }
-        }
-
-        // Add new genes to graph
-        for (connection, node1, node2) in new_genes {
-            let from = if added_nodes.contains_key(&node1.get_id()) {
-                added_nodes[&node1.get_id()]
-            } else {
-                let new_node = new_graph.add_node(Node::new(node1.get_id(), node1.get_type()));
-                added_nodes.insert(node1.get_id(), new_node);
-                new_node
-            };
-
-            let to = if added_nodes.contains_key(&node2.get_id()) {
-                added_nodes[&node1.get_id()]
-            } else {
-                let new_node = new_graph.add_node(Node::new(node2.get_id(), node2.get_type()));
-                added_nodes.insert(node2.get_id(), new_node);
-                new_node
-            };
-
-            new_graph.add_edge(from, to, connection);
-        }
-
-        Genome::new_from_graph(
-            new_graph,
-            self.input_nodes,
-            self.output_nodes,
-            self.hidden_nodes,
-        )
+        child
     }
 
-    pub fn compatability_distance(&self, other: &Genome) -> f64 {
-        let (self_conn, other_conn, matching_genes, disjoint_genes, other_disjoint) =
-            self.difference(other);
-
-        let mut weight_diff: f64 = 0.0;
-
-        for i in &matching_genes {
-            weight_diff += (self
-                .network_graph
-                .edge_weight(self_conn[&i])
-                .unwrap()
-                .get_weight() as f64
-                - other
-                    .network_graph
-                    .edge_weight(other_conn[&i])
-                    .unwrap()
-                    .get_weight() as f64)
-                .abs();
-        }
-
-        let n = f64::max(self_conn.len() as f64, other_conn.len() as f64);
-
-        // compatibility distance formula is (c1 * E) / N + (c2 * D) / N + c3 * W
-        // page 13 of NEAT paper
-        // E = number of disjoint genes from self
-        // D = number of disjoint genes from other
-        // N = number of genes in larger genome
-        // W = average weight difference of matching genes
-        // c1, c2, c3 are configurable coefficients
-        // TODO: Configurable coefficients
-
-        (disjoint_genes.len() as f64 / n)
-            + (other_disjoint.len() as f64 / n)
-            + (weight_diff / matching_genes.len() as f64)
+    // Returns matching connection gene if exists
+    fn matching_gene<'a>(&'a self, other: &'a Genome, id: usize) -> Option<&ConnectionGene> {
+        let gene = other.genes.iter().find(|gene| gene.innovation == id);
+        gene
     }
 
-    // Helper function for loading inputs into proper nodes
-    fn load_inputs(&mut self, inputs: &[f32]) {
-        assert_eq!(inputs.len(), self.input_nodes);
-
-        for (i, input) in inputs.iter().enumerate() {
-            let node = self
-                .network_graph
-                .node_weight_mut(NodeIndex::new(i))
-                .unwrap();
-            node.update_sum(*input);
-            node.activate(Activation::Linear);
-        }
-
-        // Load bias node
-        let bias_node = self
-            .network_graph
-            .node_weight_mut(NodeIndex::new(self.input_nodes))
-            .unwrap();
-
-        bias_node.update_sum(1.0);
-        bias_node.activate(Activation::Linear);
-    }
-
-    // feed-forward
-    pub fn output(&mut self, inputs: &[f32], activation: Activation) -> Vec<f32> {
-        self.load_inputs(inputs);
-
-        let topo = algo::toposort(&self.network_graph, None).unwrap().clone();
-        let graph = &mut self.network_graph;
-        for node in topo {
-            // Skip input nodes
-            if graph.neighbors_directed(node, Direction::Incoming).count() == 0 {
-                continue;
-            }
-
-            let weighted_sum = graph
-                .neighbors_directed(node, Direction::Incoming)
-                .map(|n| {
-                    let edge = graph.find_edge(n, node).unwrap();
-                    let edge_weight = graph.edge_weight(edge).unwrap();
-                    edge_weight.get_weight() * graph.node_weight(n).unwrap().get_output()
-                })
-                .sum();
-
-            // apply weighted sum to node
-            let node = graph.node_weight_mut(node).unwrap();
-            node.update_sum(weighted_sum);
-            node.activate(activation);
-        }
-
-        // Get output nodes
-        let output_nodes: Vec<f32> = graph
-            .node_indices()
-            .filter(|&n| graph.node_weight(n).unwrap().get_type() == NodeType::Output)
-            .map(|n| graph.node_weight(n).unwrap().get_sum())
-            .collect();
-
-        output_nodes
-    }
-
-    // Handle random mutations
-    // Should refactor weights out to a config later (maybe pass in as parameter)
     pub fn mutate(&mut self, innovation_record: &mut InnovationRecord) {
         let mut rng = rand::thread_rng();
-        if rng.gen::<f32>() < 0.8 {
-            // mutate connections
-            for conn in self.network_graph.edge_weights_mut() {
-                if rng.gen::<f32>() < 0.7 {
-                    // Add random value to weight
-                    conn.set_weight(conn.get_weight() + rng.gen_range(-0.3..=0.3));
-                } else {
-                    // Set to random value
-                    conn.set_weight(rng.gen_range(-2.0..=2.0));
-                }
+        // Mutate weights 80%
+        if rng.gen::<f64>() < 0.7 {
+            for gene in &mut self.genes {
+                gene.mutate_weight();
             }
         }
-        if rng.gen::<f32>() < 0.003 {
-            // split connection (add_node)
+        // Mutate add node 5%
+        if rng.gen::<f64>() < 0.2 {
             self.add_node(innovation_record);
         }
-        if rng.gen::<f32>() < 0.01 {
-            // swap connection (enable/disable)
-            let mut rng = rand::thread_rng();
-            let choice = self
-                .network_graph
-                .edge_weights_mut()
-                .choose(&mut rng)
-                .unwrap();
-            choice.swap_enabled();
-        }
-        if rng.gen::<f32>() < 0.005 {
-            // add connection
+        // Mutate add connection 5%
+        if rng.gen::<f64>() < 0.5 {
             self.add_connection(innovation_record);
         }
     }
 
-    pub fn output_graph(&self) {
-        println!(
-            "{:?}",
-            Dot::with_config(&self.network_graph, &[Config::GraphContentOnly])
-        );
+    pub fn add_connection(&mut self, innovation_record: &mut InnovationRecord) {
+        // Just try a certain amount of times to find a connection
+        let mut rng = rand::thread_rng();
+        'outer: for _ in 0..20 {
+            // Select two nodes
+            let mut node_1 = self.node[rng.gen_range(0..self.node.len())].clone();
+            let mut node_2 = self.node[rng.gen_range(0..self.node.len())].clone();
+
+            if node_1.id == node_2.id {
+                continue;
+            }
+
+            if node_1.node_layer == node_2.node_layer || node_1.node_layer > node_2.node_layer {
+                continue;
+            }
+
+            // Check if connection already exists
+            match self
+                .genes
+                .iter_mut()
+                .find(|gene| gene.in_node == node_1.id && gene.out_node == node_2.id)
+            {
+                None => {
+                    // Do nothing
+                }
+                Some(connection) => {
+                    if !connection.enabled {
+                        connection.enabled = true;
+                        break 'outer;
+                    } else {
+                        continue 'outer;
+                    }
+                }
+            };
+
+            // Add connection
+            let connection = ConnectionGene::new(
+                node_1.id,
+                node_2.id,
+                rng.gen_range(-5.0..5.0),
+                innovation_record.new_innovation(node_1.id, node_2.id),
+            );
+            self.genes.push(connection);
+            break 'outer;
+        }
+    }
+
+    pub fn add_node(&mut self, innovation_record: &mut InnovationRecord) {
+        let mut rng = rand::thread_rng();
+        let genes_len = self.genes.len();
+        let connection = &mut self.genes[rng.gen_range(0..genes_len)];
+        connection.enabled = false;
+        let old_weight = connection.weight;
+
+        let node_id = innovation_record.new_node_innovation();
+        // from layer
+        let connection_ids: (usize, usize) = (connection.in_node, connection.out_node);
+        let from_layer = get_node(connection_ids.0, &mut self.node.clone())
+            .unwrap()
+            .node_layer;
+        self.node.push(NodeGene::new(
+            node_id,
+            NodeType::Hidden,
+            from_layer + 1,
+            0.0,
+            0.0,
+        ));
+        self.genes.push(ConnectionGene::new(
+            connection_ids.0,
+            node_id,
+            old_weight,
+            innovation_record.new_innovation(connection_ids.0, node_id),
+        ));
+        self.genes.push(ConnectionGene::new(
+            node_id,
+            connection_ids.1,
+            rng.gen_range(-5.0..5.0),
+            innovation_record.new_innovation(node_id, connection_ids.1),
+        ));
+        // Recalculate layers
+        let nodes = self.node.clone();
+        let genes = self.genes.clone();
+        for node in &mut self.node {
+            if node.node_layer == 1 {
+                continue;
+            }
+            node.node_layer = find_layer(&nodes, &genes, Some(node));
+        }
+        self.layers = self.node.iter().map(|node| node.node_layer).max().unwrap();
+    }
+
+    pub fn fully_connect(&mut self, innovation_record: &mut InnovationRecord) {
+        // If there are hidden nodes
+        if self.node.len() > self.inputs + self.outputs {
+            for i in 0..self.inputs {
+                for j in self.inputs + self.outputs..=self.node.len() {
+                    self.genes.push(ConnectionGene::new(
+                        self.node[i].id,
+                        self.node[j].id,
+                        rand::thread_rng().gen_range(-5.0..5.0),
+                        innovation_record.new_innovation(i, j),
+                    ));
+                }
+            }
+            for i in self.inputs + self.outputs..=self.node.len() {
+                for j in 0..self.outputs {
+                    self.genes.push(ConnectionGene::new(
+                        self.node[i].id,
+                        self.node[self.inputs + j].id,
+                        rand::thread_rng().gen_range(-5.0..5.0),
+                        innovation_record.new_innovation(i, self.inputs + j),
+                    ));
+                }
+            }
+        } else {
+            for i in 0..self.inputs {
+                for j in 0..self.outputs {
+                    self.genes.push(ConnectionGene::new(
+                        self.node[i].id,
+                        self.node[self.inputs + j].id,
+                        rand::thread_rng().gen_range(-5.0..5.0),
+                        innovation_record.new_innovation(i, self.inputs + j),
+                    ));
+                }
+            }
+        }
+    }
+
+    pub fn feed_forward(&mut self, inputs: Vec<f64>) -> Vec<f64> {
+        // Reset
+        for node in &mut self.node {
+            node.sum_inputs = 0.0;
+            node.sum_outputs = 0.0;
+        }
+        // Set input nodes
+        for i in 0..inputs.len() {
+            self.node[i].sum_inputs = inputs[i];
+            self.node[i].sum_outputs = inputs[i];
+        }
+        self.node[self.bias_node].sum_inputs = 1.0;
+        self.node[self.bias_node].sum_outputs = 1.0;
+
+        let genes = self.genes.clone();
+        // Collect node ids
+        let mut node_ids: Vec<usize> = vec![];
+        for node in &mut self.node {
+            node_ids.push(node.id);
+        }
+
+        // Loop through layers starting at 2
+        for i in 2..=self.layers {
+            for node_id in &node_ids {
+                let mut node = get_node(*node_id, &self.node).unwrap().clone();
+                if node.node_layer == i {
+                    // Find all incoming connections
+                    genes.iter().for_each(|gene| {
+                        if gene.out_node == node.id && gene.enabled {
+                            let in_node = get_node(gene.in_node, &mut self.node).unwrap();
+                            node.sum_inputs += in_node.sum_outputs * gene.weight;
+                        }
+                    });
+                    // Apply activation function
+                    let node_index = self
+                        .node
+                        .iter()
+                        .position(|node| node.id == node_id.clone())
+                        .unwrap();
+                    self.node[node_index].sum_inputs = node.sum_inputs;
+                    self.node[node_index].sum_outputs =
+                        1.0 / (1.0 + (-4.9 * node.sum_inputs).exp());
+                }
+            }
+        }
+
+        // Get output nodes
+        let mut outputs = vec![];
+        for node in &mut self.node {
+            if node.node_type == NodeType::Output {
+                outputs.push(node.sum_outputs);
+            }
+        }
+        outputs
+    }
+
+    pub fn compatability_distance(&self, other: &Self) -> f64 {
+        // let c1 = 1.0;
+        let c2 = 1.0;
+        let c3 = 0.4;
+
+        let n1 = self.genes.len() as f64;
+        let n2 = other.genes.len() as f64;
+        let n = f64::max(n1, n2);
+
+        if n == 0.0 {
+            return 0.0;
+        }
+
+        let matching_genes = self.genes
+            .iter()
+            .filter(|gene| other.genes.iter().any(|other_gene| other_gene.innovation == gene.innovation))
+            .collect::<Vec<&ConnectionGene>>();
+
+        let disjoint_num = n1 + n2 - (2 * matching_genes.len()) as f64;
+
+        let avg_weight_diff = matching_genes.iter()
+            .fold(0.0, |acc, gene| acc +
+                (gene.weight - other.genes.iter().find(|other_gene|
+                    other_gene.innovation == gene.innovation)
+                    .unwrap()
+                    .weight)
+                    .abs())
+            / matching_genes.len() as f64;
+
+        (c2 * disjoint_num) / n + (c3 * avg_weight_diff)
+    }
+}
+
+fn get_node(id: usize, nodes: &Vec<NodeGene>) -> Option<&NodeGene> {
+    let node = nodes.iter().find(|node| node.id == id);
+    match node {
+        None => None,
+        Some(node) => Some(node),
+    }
+}
+
+fn find_layer(
+    nodes: &Vec<NodeGene>,
+    genes: &Vec<ConnectionGene>,
+    node: Option<&NodeGene>,
+) -> usize {
+    match node {
+        None => 0,
+        Some(node) => {
+            // Get all connections to node
+            let connections: Vec<&ConnectionGene> = genes
+                .iter()
+                .filter(|gene| gene.out_node == node.id)
+                .collect();
+            if connections.len() == 0 {
+                return 1;
+            } else {
+                // Find longest path
+                let mut max_layer = 0;
+                for connection in connections {
+                    let node_layer =
+                        find_layer(&nodes, genes, get_node(connection.in_node, &nodes));
+                    if node_layer > max_layer {
+                        max_layer = node_layer;
+                    }
+                }
+                max_layer + 1
+            }
+        }
+    }
+}
+
+impl Display for Genome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut output = String::new();
+        output.push_str(&format!("Fitness: {} ", self.fitness));
+        output.push_str(&format!("Layers: {} ", self.layers));
+        output.push_str(&format!("Nodes:\n"));
+        for node in &self.node {
+            output.push_str(&format!("{:?}\n", node));
+        }
+        output.push_str(&format!("Genes:\n"));
+        for gene in &self.genes {
+            output.push_str(&format!("{:?}\n", gene));
+        }
+        write!(f, "{}", output)
+    }
+}
+
+impl Eq for Genome {}
+impl PartialEq<Self> for Genome {
+    fn eq(&self, other: &Self) -> bool {
+        self.fitness == other.fitness
+    }
+}
+
+impl PartialOrd<Self> for Genome {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        other.fitness.partial_cmp(&self.fitness)
+    }
+}
+
+impl Ord for Genome {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.fitness.partial_cmp(&self.fitness).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn setup_genome() {
+        let mut innovation_record = InnovationRecord::new();
+        let mut genome = Genome::new(2, 1, &mut innovation_record);
+        assert_eq!(genome.inputs, 3);
+        assert_eq!(genome.outputs, 1);
+        assert_eq!(genome.layers, 2);
+        assert_eq!(genome.node.len(), 4);
+        assert_eq!(genome.genes.len(), 3);
+
+        // Add a bunch of mutation
+        for _ in 0..16 {
+            genome.mutate(&mut innovation_record);
+        }
+        dbg!(genome.genes);
+        dbg!(genome.node);
+    }
+
+    #[test]
+    fn proper_output() {
+        // Test case to make sure feed-forward has proper output
+        let mut innovation_record = InnovationRecord::new();
+        let mut genome = Genome::new(2, 1, &mut innovation_record);
+
+        // Manually set all weights
+        genome.genes[0].weight = 0.5;
+        genome.genes[1].weight = 0.5;
+        genome.genes[2].weight = 0.5;
+
+        let output = genome.feed_forward(vec![0.0, 0.0]);
+        assert_eq!(output[0], 0.6224593312018546);
+        let output = genome.feed_forward(vec![1.0, 0.0]);
+        assert_eq!(output[0], 0.7310585786300049);
+        let output = genome.feed_forward(vec![0.0, 1.0]);
+        assert_eq!(output[0], 0.7310585786300049);
+        let output = genome.feed_forward(vec![1.0, 1.0]);
+        assert_eq!(output[0], 0.8175744761936437);
+        dbg!(genome);
+    }
+
+    #[test]
+    fn compare_check() {
+        // Simple comparison of genomes to make sure that sorting by fitness will work
+        let mut innovation_record = InnovationRecord::new();
+        let mut genome = Genome::new(2, 1, &mut innovation_record);
+        genome.fitness = 5.0;
+        let mut genome_2 = Genome::new(2, 1, &mut innovation_record);
+        genome_2.fitness = 10.0;
+
+        assert!(genome > genome_2);
+
+        let mut vec = vec![genome, genome_2];
+        assert_eq!(vec[0].fitness, 5.0);
+        vec.sort();
+        assert_eq!(vec[0].fitness, 10.0);
     }
 }
