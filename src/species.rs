@@ -1,8 +1,5 @@
-use crate::{
-    genome::genome::{Genome, InnovationRecord},
-    population::NeatConfig,
-};
-use rand::{seq::IndexedRandom, Rng};
+use crate::{context::NeatConfig, genome::genome::Genome, state::InnovationRecord};
+use rand::{seq::IndexedRandom, Rng, RngCore};
 
 #[derive(Debug, Clone)]
 pub struct Species {
@@ -68,21 +65,25 @@ impl Species {
         self.genomes.choose(&mut rand::rng()).unwrap().clone()
     }
 
-    pub fn make_child(&self, config: &NeatConfig, innovation: &mut InnovationRecord) -> Genome {
-        let mut rng = rand::rng();
+    pub fn make_child(
+        &self,
+        config: &NeatConfig,
+        rng: &mut dyn RngCore,
+        innovation: &mut InnovationRecord,
+    ) -> Genome {
         let mut child = if rng.random::<f32>() < config.crossover_rate {
             // Crossover
-            let parent1 = self.genomes.choose(&mut rng).unwrap();
-            let parent2 = self.genomes.choose(&mut rng).unwrap();
-            Genome::crossover(parent1, parent2)
+            let parent1 = self.genomes.choose(rng).unwrap();
+            let parent2 = self.genomes.choose(rng).unwrap();
+            Genome::crossover(parent1, parent2, rng)
         } else {
             // Mutation
-            let mut parent = self.genomes.choose(&mut rng).unwrap().from_existing();
-            parent.mutate(config, innovation);
+            let mut parent = self.genomes.choose(rng).unwrap().from_existing();
+            parent.mutate(config, rng, innovation);
             parent
         };
 
-        child.mutate(config, innovation);
+        child.mutate(config, rng, innovation);
         child
     }
 

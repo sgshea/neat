@@ -53,8 +53,7 @@ impl ActivationFunction {
     pub fn activate(&self, x: f32) -> f32 {
         match self {
             ActivationFunction::Identity => x,
-            ActivationFunction::Sigmoid => 1. / (1. + (-4.9 * x).exp()), // the function from paper to solve xor
-            // ActivationFunction::Sigmoid => 1.0 / (1.0 + (-x).exp()),
+            ActivationFunction::Sigmoid => 1.0 / (1.0 + (-x).exp()),
             ActivationFunction::Tanh => x.tanh(),
             ActivationFunction::Relu => x.max(0.0),
             ActivationFunction::LeakyRelu => x.max(0.01 * x),

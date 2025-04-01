@@ -1,119 +1,89 @@
-use rand::{seq::IndexedRandom, Rng};
+use rand::{rngs::StdRng, seq::IndexedRandom, Rng, SeedableRng};
 
 use crate::{
-    environment::Environment,
-    genome::genome::{Genome, InnovationRecord},
+    context::{Environment, NeatConfig},
+    genome::genome::Genome,
     species::Species,
+    state::{InnovationRecord, SpeciationManager},
 };
 
-#[derive(Debug, Clone)]
-pub struct NeatConfig {
-    // General parameters
-    pub population_size: usize,
-
-    // Compatibility parameters
-    pub compatibility_threshold: f32,
-    pub compatibility_disjoint_coefficient: f32,
-    pub compatibility_weight_coefficient: f32,
-
-    // Mutation parameters
-    pub weight_mutation_prob: f32,
-    pub weight_perturb_prob: f32,
-    pub new_connection_prob: f32,
-    pub new_node_prob: f32,
-    pub toggle_enable_prob: f32,
-
-    // Reproduction parameters
-    pub crossover_rate: f32,
-    pub survival_threshold: f32,
-
-    // Speciation parameters
-    pub species_elitism: bool,
-    pub elitism: usize,
-    pub stagnation_limit: usize,
-    pub target_species_count: usize,
-}
-
-impl NeatConfig {
-    pub fn default() -> Self {
-        NeatConfig {
-            population_size: 150,
-
-            compatibility_threshold: 3.0,
-            compatibility_disjoint_coefficient: 1.0,
-            compatibility_weight_coefficient: 0.3,
-
-            weight_mutation_prob: 0.8,
-            weight_perturb_prob: 0.9,
-            new_connection_prob: 0.05,
-            new_node_prob: 0.03,
-            toggle_enable_prob: 0.01,
-
-            crossover_rate: 0.75,
-            survival_threshold: 0.2,
-
-            species_elitism: true,
-            elitism: 1,
-            stagnation_limit: 35,
-            target_species_count: 15,
-        }
-    }
-}
-
+// Population of the NEAT algorithm
 #[derive(Debug)]
 pub struct Population {
+    // Species manager manages species id and changing compatibility threshold
+    pub species_manager: SpeciationManager,
+    // Vector of species in the population
     pub species: Vec<Species>,
-    pub species_counter: usize,
+
+    // Generation of the population
     pub generation: usize,
+
+    // Configuration and environment for the problem
     pub config: NeatConfig,
     pub environment: Environment,
+
+    // Best genome of this population and its fitness
     pub best_genome: Option<Genome>,
     pub best_fitness: f32,
+
+    // Innovation record for tracking innovation numbers
     pub innovation: InnovationRecord,
 
-    pub initial_genome: Genome,
+    // Shared Rng
+    pub rng: StdRng,
 }
 
 impl Population {
+    // Create empty population
     pub fn new(config: NeatConfig, environment: Environment) -> Self {
-        let mut innovation = InnovationRecord::new();
-        let initial_genome = Genome::create_initial_genome(
-            environment.input_size,
-            environment.output_size,
-            &mut innovation,
-        );
-
-        let mut population = Population {
+        Population {
+            species_manager: SpeciationManager::new(
+                config.initial_compatibility_threshold,
+                0,
+                config.target_species_count,
+            ),
             species: Vec::new(),
-            species_counter: 0,
             generation: 0,
             config,
             environment,
             best_genome: None,
             best_fitness: 0.0,
-            innovation,
-            initial_genome,
-        };
+            innovation: InnovationRecord::new(),
+            rng: StdRng::from_rng(&mut rand::rng()),
+        }
+    }
+
+    // Builder to add a seed to the rng
+    pub fn with_rng(mut self, seed: u64) -> Self {
+        self.rng = StdRng::seed_from_u64(seed);
+        self
+    }
+
+    // Builder to initialize population
+    pub fn initialize(mut self) -> Self {
+        let initial_genome = Genome::create_initial_genome(
+            self.environment.input_size,
+            self.environment.output_size,
+            &mut self.rng,
+            &mut self.innovation,
+        );
 
         // Start with just one species containing all genomes
-        let mut initial_species = Species::new(
-            population.species_counter,
-            population.initial_genome.clone(),
-        );
-        population.species_counter += 1;
+        let mut initial_species =
+            Species::new(self.species_manager.new_species(), initial_genome.clone());
 
         // Add all genomes to this species, with some diversity
-        for _ in 0..population.config.population_size {
-            let mut genome = population.initial_genome.clone();
+        for _ in 0..self.config.population_size {
+            let mut genome = initial_genome.clone();
             // Apply some random mutations to each genome
-            for _ in 0..rand::rng().random_range(0..=2) {
-                genome.mutate(&population.config, &mut population.innovation);
+            for _ in 0..self.rng.random_range(0..=2) {
+                genome.mutate(&self.config, &mut self.rng, &mut self.innovation);
             }
             initial_species.genomes.push(genome);
         }
 
-        population.species.push(initial_species);
-        population
+        self.species.push(initial_species);
+        self
     }
 
     pub fn evaluate<F>(&mut self, fitness_fn: F)
@@ -161,7 +131,7 @@ impl Population {
                 if species
                     .representative
                     .compatibility_distance(genome, &self.config)
-                    < self.config.compatibility_threshold
+                    < self.species_manager.compatibility_threshold
                 {
                     species.genomes.push(genome.clone());
                     placed = true;
@@ -171,31 +141,22 @@ impl Population {
 
             // If no suitable species found, create a new one
             if !placed {
-                let mut new_species = Species::new(self.species_counter, genome.clone());
+                let mut new_species =
+                    Species::new(self.species_manager.new_species(), genome.clone());
                 new_species.genomes.push(genome.clone());
                 self.species.push(new_species);
-                self.species_counter += 1;
             }
         }
 
         // Final cleanup - remove any species that ended up empty
         self.species.retain(|s| !s.genomes.is_empty());
 
-        // If we have too many species, increase threshold slightly
-        if self.species.len() > self.config.target_species_count * 2 {
-            self.config.compatibility_threshold *= 1.05;
-        }
-        // If we have too few species, decrease threshold slightly
-        else if self.species.len() < self.config.target_species_count / 2
-            && self.species.len() > 1
-        {
-            self.config.compatibility_threshold *= 0.95;
-        }
+        // Adjust threshold based on current species count
+        self.species_manager.adjust_threshold(self.species.len());
     }
 
     fn reproduce(&mut self) -> Vec<Genome> {
         let mut new_generation = Vec::with_capacity(self.config.population_size);
-        let mut rng = rand::rng();
 
         // Step 1: Update species statistics and adjust fitness
         let mut total_adjusted_fitness = 0.0;
@@ -302,20 +263,20 @@ impl Population {
                     continue;
                 }
 
-                let mut child = if rng.random::<f32>() < self.config.crossover_rate
+                let mut child = if self.rng.random::<f32>() < self.config.crossover_rate
                     && breeding_pool.len() >= 2
                 {
                     // Crossover between two parents
-                    let parent1 = breeding_pool.choose(&mut rng).unwrap();
-                    let parent2 = breeding_pool.choose(&mut rng).unwrap();
-                    parent1.crossover(parent2)
+                    let parent1 = breeding_pool.choose(&mut self.rng).unwrap();
+                    let parent2 = breeding_pool.choose(&mut self.rng).unwrap();
+                    parent1.crossover(parent2, &mut self.rng)
                 } else {
                     // Clone a single parent
-                    breeding_pool.choose(&mut rng).unwrap().from_existing()
+                    breeding_pool.choose(&mut self.rng).unwrap().from_existing()
                 };
 
                 // Apply mutation
-                child.mutate(&self.config, &mut self.innovation);
+                child.mutate(&self.config, &mut self.rng, &mut self.innovation);
 
                 new_generation.push(child);
             }
@@ -326,12 +287,17 @@ impl Population {
             // Create completely new genomes or clone the best one
             if let Some(ref best) = self.best_genome {
                 let mut child = best.from_existing();
-                child.mutate(&self.config, &mut self.innovation);
+                child.mutate(&self.config, &mut self.rng, &mut self.innovation);
                 new_generation.push(child);
             } else {
                 // No best genome yet, create from initial template
-                let mut child = self.initial_genome.from_existing();
-                child.mutate(&self.config, &mut self.innovation);
+                let mut child = Genome::create_initial_genome(
+                    self.environment.input_size,
+                    self.environment.output_size,
+                    &mut self.rng,
+                    &mut self.innovation,
+                );
+                child.mutate(&self.config, &mut self.rng, &mut self.innovation);
                 new_generation.push(child);
             }
         }

@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::population::NeatConfig;
+use rand::{seq::IteratorRandom, Rng, RngCore};
+
+use crate::{context::NeatConfig, state::InnovationRecord};
 
 use super::genes::{ActivationFunction, ConnectionGene, NodeGene};
-use rand::{seq::IteratorRandom, Rng};
 
 // Genome is a single entity
 #[derive(Debug, Clone)]
@@ -53,6 +54,7 @@ impl Genome {
     pub fn create_initial_genome(
         input_size: usize,
         output_size: usize,
+        rng: &mut dyn RngCore,
         innovation: &mut InnovationRecord,
     ) -> Self {
         let mut nodes = HashMap::with_capacity(input_size + 1 + output_size);
@@ -88,11 +90,7 @@ impl Genome {
                 // TODO: probably insert a random weight for new connections
                 connections.insert(
                     innovation,
-                    ConnectionGene::new(
-                        connection,
-                        rand::rng().random_range(-1.0..1.0),
-                        innovation,
-                    ),
+                    ConnectionGene::new(connection, rng.random_range(-1.0..1.0), innovation),
                 );
             }
         }
@@ -110,10 +108,12 @@ impl Genome {
         }
     }
 
-    pub fn mutate(&mut self, config: &NeatConfig, innovation_record: &mut InnovationRecord) {
-        // TODO: use a global rng that is passed in
-        let mut rng = rand::rng();
-
+    pub fn mutate(
+        &mut self,
+        config: &NeatConfig,
+        rng: &mut dyn RngCore,
+        innovation_record: &mut InnovationRecord,
+    ) {
         // Weight mutation
         if rng.random::<f32>() < config.weight_mutation_prob {
             for connection in &mut self.connections.values_mut() {
@@ -129,24 +129,26 @@ impl Genome {
 
         // Add connection mutation
         if rng.random::<f32>() < config.new_connection_prob {
-            self.add_connection_mutation(innovation_record);
+            self.add_connection_mutation(rng, innovation_record);
         }
 
         // Add node mutation
         if rng.random::<f32>() < config.new_node_prob {
-            self.add_node_mutation(innovation_record);
+            self.add_node_mutation(rng, innovation_record);
         }
 
         // Toggle enable/disable mutation
         if rng.random::<f32>() < config.toggle_enable_prob && !self.connections.is_empty() {
-            let random_connection = self.connections.values_mut().choose(&mut rng).unwrap();
+            let random_connection = self.connections.values_mut().choose(rng).unwrap();
             random_connection.enabled = !random_connection.enabled;
         }
     }
 
-    fn add_connection_mutation(&mut self, innovation: &mut InnovationRecord) {
-        let mut rng = rand::rng();
-
+    fn add_connection_mutation(
+        &mut self,
+        rng: &mut dyn RngCore,
+        innovation: &mut InnovationRecord,
+    ) {
         // Collect all possible node pairs that could be connected
         let mut possible_connections = Vec::new();
 
@@ -206,16 +208,18 @@ impl Genome {
     }
 
     // Helper method for add node mutation
-    fn add_node_mutation(&mut self, innovation_record: &mut InnovationRecord) {
-        let mut rng = rand::rng();
-
+    fn add_node_mutation(
+        &mut self,
+        rng: &mut dyn RngCore,
+        innovation_record: &mut InnovationRecord,
+    ) {
         // Can't add node if there are no connections
         if self.connections.is_empty() {
             return;
         }
 
         // Select a random connection
-        let innovation = self.connections.keys().cloned().choose(&mut rng).unwrap();
+        let innovation = self.connections.keys().cloned().choose(rng).unwrap();
         let connection = self.connections.get_mut(&innovation).unwrap();
 
         // Disable the selected connection
@@ -326,8 +330,7 @@ impl Genome {
             + (config.compatibility_weight_coefficient * avg_weight_diff)
     }
 
-    pub fn crossover(&self, other: &Genome) -> Genome {
-        let mut rng = rand::rng();
+    pub fn crossover(&self, other: &Genome, rng: &mut dyn RngCore) -> Genome {
         let mut child = self.from_existing();
 
         // Copy input and output nodes
@@ -402,39 +405,5 @@ impl Genome {
         }
 
         child
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct InnovationRecord {
-    node_innovation_counter: usize,
-    innovation_counter: usize,
-    innovations: HashMap<(usize, usize), usize>,
-}
-
-impl InnovationRecord {
-    pub fn new() -> Self {
-        InnovationRecord {
-            node_innovation_counter: 0,
-            innovation_counter: 0,
-            innovations: HashMap::new(),
-        }
-    }
-
-    pub fn get_innovation_id(&self, innovation: (usize, usize)) -> Option<usize> {
-        self.innovations.get(&innovation).copied()
-    }
-
-    pub fn record_innovation(&mut self, innovation: (usize, usize)) -> usize {
-        let innovation_id = self.innovation_counter;
-        self.innovation_counter += 1;
-        self.innovations.insert(innovation, innovation_id);
-        innovation_id
-    }
-
-    pub fn record_node_innovation(&mut self) -> usize {
-        let innovation_id = self.node_innovation_counter;
-        self.node_innovation_counter += 1;
-        innovation_id
     }
 }
