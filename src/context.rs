@@ -1,3 +1,28 @@
+use crate::nn::nn::NetworkType;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ActivationFunction {
+    Identity,
+    Sigmoid,
+    Tanh,
+    Relu,
+    LeakyRelu,
+    Custom(fn(f32) -> f32),
+}
+
+impl ActivationFunction {
+    pub fn activate(&self, x: f32) -> f32 {
+        match self {
+            ActivationFunction::Identity => x,
+            ActivationFunction::Sigmoid => 1.0 / (1.0 + (-x).exp()),
+            ActivationFunction::Tanh => x.tanh(),
+            ActivationFunction::Relu => x.max(0.0),
+            ActivationFunction::LeakyRelu => x.max(0.01 * x),
+            ActivationFunction::Custom(f) => f(x),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Environment {
     pub input_size: usize,
@@ -15,6 +40,13 @@ impl Environment {
 
 #[derive(Debug, Clone)]
 pub struct NeatConfig {
+    pub network_type: NetworkType,
+
+    // CTRNN Specific
+    pub bias_mutation_prob: f32,
+    pub time_constant_mutation_prob: f32,
+    pub param_perturb_prob: f32,
+
     // General parameters
     pub population_size: usize,
 
@@ -39,11 +71,20 @@ pub struct NeatConfig {
     pub elitism: usize,
     pub stagnation_limit: usize,
     pub target_species_count: usize,
+
+    // Allowed Activation Functions (incl. custom)
+    pub allowed_activation_functions: Vec<ActivationFunction>,
+    pub default_activation_function: ActivationFunction,
 }
 
 impl NeatConfig {
     pub fn default() -> Self {
         NeatConfig {
+            network_type: NetworkType::Feedforward,
+            bias_mutation_prob: 0.3,
+            time_constant_mutation_prob: 0.2,
+            param_perturb_prob: 0.9,
+
             population_size: 150,
 
             initial_compatibility_threshold: 3.0,
@@ -63,6 +104,9 @@ impl NeatConfig {
             elitism: 1,
             stagnation_limit: 35,
             target_species_count: 15,
+
+            allowed_activation_functions: vec![ActivationFunction::Sigmoid],
+            default_activation_function: ActivationFunction::Sigmoid,
         }
     }
 }

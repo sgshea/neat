@@ -17,9 +17,10 @@ pub trait NeuralNetwork<'n> {
 }
 
 /// Different types of neural networks
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NetworkType {
     Feedforward,
-    // CTRNN,
+    CTRNN,
     // LSTM,
     // GRU,
 }

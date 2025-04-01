@@ -2,9 +2,13 @@ use std::collections::{HashMap, HashSet};
 
 use rand::{seq::IteratorRandom, Rng, RngCore};
 
-use crate::{context::NeatConfig, state::InnovationRecord};
+use crate::{
+    context::{ActivationFunction, NeatConfig},
+    nn::nn::NetworkType,
+    state::InnovationRecord,
+};
 
-use super::genes::{ActivationFunction, ConnectionGene, NodeGene};
+use super::genes::{ConnectionGene, NodeGene};
 
 // Genome is a single entity
 #[derive(Debug, Clone)]
@@ -54,6 +58,7 @@ impl Genome {
     pub fn create_initial_genome(
         input_size: usize,
         output_size: usize,
+        config: &NeatConfig,
         rng: &mut dyn RngCore,
         innovation: &mut InnovationRecord,
     ) -> Self {
@@ -74,7 +79,13 @@ impl Genome {
 
         for _ in 0..output_size {
             let idx = innovation.record_node_innovation();
-            nodes.insert(idx, NodeGene::new(idx, ActivationFunction::Sigmoid));
+            let mut node = NodeGene::new(idx, config.default_activation_function);
+            if config.network_type == NetworkType::CTRNN {
+                // randomize time constant and bias
+                node.time_constant = rng.random_range(0.1..5.0);
+                node.bias = rng.random_range(-1.0..1.0);
+            }
+            nodes.insert(idx, node);
             output_nodes.push(idx);
         }
 
@@ -86,15 +97,23 @@ impl Genome {
             for j in &output_nodes {
                 let connection = (*i, *j);
                 connection_set.insert(connection);
-                let innovation = innovation.record_innovation(connection);
-                // TODO: probably insert a random weight for new connections
+                let innovation = innovation.record_connection_innovation(*i, *j);
                 connections.insert(
                     innovation,
                     ConnectionGene::new(connection, rng.random_range(-1.0..1.0), innovation),
                 );
             }
         }
-        // TODO: connections for bias node? Put this in configuration
+        // Connections from bias node to outputs
+        for j in &output_nodes {
+            let connection = (bias_idx, *j);
+            connection_set.insert(connection);
+            let innovation = innovation.record_connection_innovation(bias_idx, *j);
+            connections.insert(
+                innovation,
+                ConnectionGene::new(connection, rng.random_range(-1.0..1.0), innovation),
+            );
+        }
 
         Self {
             nodes,
@@ -134,13 +153,17 @@ impl Genome {
 
         // Add node mutation
         if rng.random::<f32>() < config.new_node_prob {
-            self.add_node_mutation(rng, innovation_record);
+            self.add_node_mutation(config, rng, innovation_record);
         }
 
         // Toggle enable/disable mutation
         if rng.random::<f32>() < config.toggle_enable_prob && !self.connections.is_empty() {
             let random_connection = self.connections.values_mut().choose(rng).unwrap();
             random_connection.enabled = !random_connection.enabled;
+        }
+
+        if config.network_type == NetworkType::CTRNN {
+            self.mutate_node_parameters(config, rng);
         }
     }
 
@@ -190,8 +213,13 @@ impl Genome {
             let (from_node, to_node) =
                 possible_connections[rng.random_range(0..possible_connections.len())];
 
-            // Get innovation number for this connection
-            let innovation_number = innovation.record_innovation((from_node, to_node));
+            // Get innovation number for this connection - consistent across population
+            let innovation_number = innovation.record_connection_innovation(from_node, to_node);
+
+            // If we already have this connection (possible with crossover), skip
+            if self.connections.contains_key(&innovation_number) {
+                return;
+            }
 
             // Create and add the connection
             let connection = ConnectionGene {
@@ -210,6 +238,7 @@ impl Genome {
     // Helper method for add node mutation
     fn add_node_mutation(
         &mut self,
+        config: &NeatConfig,
         rng: &mut dyn RngCore,
         innovation_record: &mut InnovationRecord,
     ) {
@@ -220,31 +249,43 @@ impl Genome {
 
         // Select a random connection
         let innovation = self.connections.keys().cloned().choose(rng).unwrap();
-        let connection = self.connections.get_mut(&innovation).unwrap();
+        let connection = self.connections.get(&innovation).unwrap().clone();
+
+        // Only split enabled connections
+        if !connection.enabled {
+            return;
+        }
 
         // Disable the selected connection
-        connection.enabled = false;
+        self.connections.get_mut(&innovation).unwrap().enabled = false;
 
-        let connection = connection.clone();
+        // Get consistent innovation numbers for this split
+        let (new_node_id, in_conn_innovation, out_conn_innovation) = innovation_record
+            .record_node_split(innovation, connection.in_node, connection.out_node);
 
-        // Create a new node
-        let new_node_id = innovation_record.record_node_innovation();
-        let new_node = NodeGene::new(new_node_id, ActivationFunction::Sigmoid);
+        // Check if the node already exists (could happen in crossover)
+        if !self.nodes.contains_key(&new_node_id) {
+            // Create a new node
+            let mut new_node = NodeGene::new(new_node_id, config.default_activation_function);
+            if config.network_type == NetworkType::CTRNN {
+                // randomize time constant and bias
+                new_node.time_constant = rng.random_range(0.1..5.0);
+                new_node.bias = rng.random_range(-1.0..1.0);
+            }
+            self.nodes.insert(new_node_id, new_node);
+        }
 
-        // Add new node
-        self.nodes.insert(new_node_id, new_node);
-
-        // Create two new connections
+        // Create two new connections with the appropriate innovation numbers
         let in_conn = ConnectionGene::new(
             (connection.in_node, new_node_id),
             1.0, // Weight from input to new node is 1.0
-            innovation_record.record_innovation((connection.in_node, new_node_id)),
+            in_conn_innovation,
         );
 
         let out_conn = ConnectionGene::new(
             (new_node_id, connection.out_node),
             connection.weight, // Weight from new node to output is the original weight
-            innovation_record.record_innovation((new_node_id, connection.out_node)),
+            out_conn_innovation,
         );
 
         // Add the new connections
@@ -256,6 +297,39 @@ impl Genome {
             .insert((connection.in_node, new_node_id));
         self.connection_set
             .insert((new_node_id, connection.out_node));
+    }
+
+    // Mutate node bias and time constant (primarily for CTRNN)
+    fn mutate_node_parameters(&mut self, config: &NeatConfig, rng: &mut dyn RngCore) {
+        for node in self.nodes.values_mut() {
+            // Skip input nodes for bias mutation (they typically don't biases)
+            let is_input = self.input_nodes.contains(&node.id) || node.id == self.bias_node;
+
+            // Mutate bias (except for input nodes)
+            if !is_input && rng.random::<f32>() < config.bias_mutation_prob {
+                if rng.random::<f32>() < config.param_perturb_prob {
+                    // Perturb existing bias
+                    node.bias += rng.random_range(-0.5..0.5);
+                    node.bias = node.bias.clamp(-8.0, 8.0);
+                } else {
+                    // Assign new random bias
+                    node.bias = rng.random_range(-1.0..1.0);
+                }
+            }
+
+            // Mutate time constant (for CTRNN)
+            if rng.random::<f32>() < config.time_constant_mutation_prob {
+                if rng.random::<f32>() < config.param_perturb_prob {
+                    // Perturb existing time constant
+                    let delta = rng.random_range(-0.1..0.1);
+                    node.time_constant = (node.time_constant + delta).max(0.1);
+                } else {
+                    // Assign new random time constant
+                    // Values between 0.1 (fast) and 5.0 (slow)
+                    node.time_constant = rng.random_range(0.1..5.0);
+                }
+            }
+        }
     }
 
     pub fn compatibility_distance(&self, other: &Genome, config: &NeatConfig) -> f32 {

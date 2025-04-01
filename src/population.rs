@@ -64,6 +64,7 @@ impl Population {
         let initial_genome = Genome::create_initial_genome(
             self.environment.input_size,
             self.environment.output_size,
+            &self.config,
             &mut self.rng,
             &mut self.innovation,
         );
@@ -294,6 +295,7 @@ impl Population {
                 let mut child = Genome::create_initial_genome(
                     self.environment.input_size,
                     self.environment.output_size,
+                    &self.config,
                     &mut self.rng,
                     &mut self.innovation,
                 );
