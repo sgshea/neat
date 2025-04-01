@@ -75,6 +75,12 @@ pub struct NeatConfig {
     // Allowed Activation Functions (incl. custom)
     pub allowed_activation_functions: Vec<ActivationFunction>,
     pub default_activation_function: ActivationFunction,
+
+    // Pressure to minimize structure (Parsimony)
+    pub complexity_penalty_coefficient: f32, // How strongly to penalize complexity
+    pub connections_penalty_coefficient: f32, // Additional penalty for connections
+    pub target_complexity: usize,            // Ideal network size
+    pub complexity_threshold: usize,         // Size at which penalties begin
 }
 
 impl NeatConfig {
@@ -107,6 +113,11 @@ impl NeatConfig {
 
             allowed_activation_functions: vec![ActivationFunction::Sigmoid],
             default_activation_function: ActivationFunction::Sigmoid,
+
+            complexity_penalty_coefficient: 0.001, // Small penalty per node
+            connections_penalty_coefficient: 0.0005, // Smaller penalty per connection
+            target_complexity: 7,
+            complexity_threshold: 10,
         }
     }
 }

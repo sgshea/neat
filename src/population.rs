@@ -93,7 +93,10 @@ impl Population {
     {
         for species in &mut self.species {
             for genome in &mut species.genomes {
-                genome.fitness = fitness_fn(genome);
+                let fitness = fitness_fn(genome);
+
+                // Apply parsimony pressure to fitness
+                genome.fitness = genome.apply_parsimony_pressure(&self.config, fitness);
             }
         }
     }

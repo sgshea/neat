@@ -71,6 +71,11 @@ fn main() {
 
         allowed_activation_functions: vec![ActivationFunction::Sigmoid],
         default_activation_function: ActivationFunction::Sigmoid,
+
+        complexity_penalty_coefficient: 0.001,
+        connections_penalty_coefficient: 0.0005,
+        target_complexity: 5,    // XOR minimal solution has 1 hidden node
+        complexity_threshold: 7, // Don't penalize until more than this
     };
 
     let environment = Environment::new(2, 1);

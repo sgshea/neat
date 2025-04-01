@@ -480,4 +480,39 @@ impl Genome {
 
         child
     }
+
+    // Gets a fitness penalty based on complexity of genome structure
+    pub fn apply_parsimony_pressure(&self, config: &NeatConfig, original_fitness: f32) -> f32 {
+        // Skip penalty if bad fitness
+        if original_fitness <= 0.0 {
+            return original_fitness;
+        }
+
+        // Count non-input/output nodes (hidden nodes)
+        let num_hidden_nodes =
+            self.nodes.len() - (self.input_nodes.len() + self.output_nodes.len());
+
+        // Skip penalty if complexity is below threshold
+        if num_hidden_nodes <= config.complexity_threshold {
+            return original_fitness;
+        }
+
+        // Calculate excess complexity
+        let excess_nodes = num_hidden_nodes.saturating_sub(config.target_complexity);
+
+        // Calculate connection penalty
+        let connection_penalty =
+            config.connections_penalty_coefficient * self.connections.len() as f32;
+
+        // Node penalty increases quadratically with excess
+        let node_penalty = if excess_nodes > 0 {
+            config.complexity_penalty_coefficient * (excess_nodes as f32).powf(1.5)
+        } else {
+            0.0
+        };
+
+        // Apply combined penalty
+        let penalized_fitness = original_fitness - node_penalty - connection_penalty;
+        penalized_fitness.max(0.00001) // Prevent zero fitness
+    }
 }

@@ -57,6 +57,11 @@ fn main() {
         allowed_activation_functions: vec![ActivationFunction::Sigmoid],
         default_activation_function: ActivationFunction::Sigmoid,
 
+        complexity_penalty_coefficient: 0.001,
+        connections_penalty_coefficient: 0.0005,
+        target_complexity: 1,    // XOR minimal solution has 1 hidden node
+        complexity_threshold: 3, // Don't penalize until more than this
+
         // CTRNN specific not needed
         time_constant_mutation_prob: 0.0,
         param_perturb_prob: 0.0,
