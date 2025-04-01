@@ -83,80 +83,51 @@ impl<'n> NeuralNetwork<'n> for CtrnnNetwork<'n> {
     }
 
     fn activate(&mut self, inputs: &[f32]) -> Result<Vec<f32>, NetworkError> {
-        if inputs.len() != self.genome.input_nodes.len() {
-            return Err(NetworkError::InvalidInput(
-                "Number of inputs does not match network input size".into(),
-            ));
-        }
+        // Set inputs and bias
+        self.set_inputs(inputs)?;
 
-        // Set input node values
-        for (i, &node_id) in self.genome.input_nodes.iter().enumerate() {
-            if let Some(&idx) = self.node_to_index.get(&node_id) {
-                self.states[idx] = inputs[i];
-            }
-        }
-
-        // Set bias node value (always 1.0)
-        if let Some(&idx) = self.node_to_index.get(&self.genome.bias_node) {
-            self.states[idx] = 1.0;
-        }
-
-        // Perform CTRNN update step
+        // Temporary array for next states
         let mut next_states = self.states.clone();
 
-        // Calculate derivatives
+        // Update all non-input neurons
         for i in 0..self.states.len() {
-            // Skip input nodes - they are set directly
-            if self
-                .genome
-                .input_nodes
-                .iter()
-                .any(|&id| self.node_to_index.get(&id) == Some(&i))
-            {
+            // Skip input nodes (including bias)
+            if self.is_input_node(i) {
                 continue;
             }
 
-            // Calculate weighted input sum for this neuron
-            let mut input_sum = self.biases[i];
+            // Calculate total input to this neuron
+            let mut weighted_input = self.biases[i];
 
+            // Sum all incoming connections
             for &(from_idx, to_idx, weight) in &self.connections {
                 if to_idx == i {
-                    let from_activation = self.states[from_idx];
-                    input_sum += from_activation * weight;
+                    // The key CTRNN part: apply sigmoid to source states
+                    let from_state_activation = sigmoid(self.states[from_idx]);
+                    weighted_input += from_state_activation * weight;
                 }
             }
 
-            // Get the activation function for this node
-            let node_id = self
-                .genome
-                .nodes
-                .keys()
-                .find(|&&key| self.node_to_index.get(&key) == Some(&i))
-                .unwrap();
-            let node = &self.genome.nodes[node_id];
+            // CTRNN differential equation: τ(dy/dt) = -y + I
+            let tau = self.time_constants[i];
+            let dy_dt = (-self.states[i] + weighted_input) / tau;
 
-            // Apply activation function
-            let target_activation = node.activation.activate(input_sum);
-
-            // Calculate rate of change using time constant
-            let dy = (target_activation - self.states[i]) / self.time_constants[i];
-
-            // Euler integration step
-            next_states[i] += dy * self.dt;
+            // Euler integration
+            next_states[i] = self.states[i] + dy_dt * self.dt;
         }
 
         // Update states
         self.states = next_states;
 
-        // Collect outputs
-        let outputs: Vec<f32> = self
+        // Apply sigmoid to output states when reading them
+        let outputs = self
             .genome
             .output_nodes
             .iter()
-            .filter_map(|&node_id| {
+            .filter_map(|&id| {
                 self.node_to_index
-                    .get(&node_id)
-                    .map(|&idx| self.states[idx])
+                    .get(&id)
+                    .map(|&idx| sigmoid(self.states[idx]))
             })
             .collect();
 
@@ -180,12 +151,21 @@ impl<'n> CtrnnNetwork<'n> {
         }
     }
 
-    pub fn set_biases(&mut self, biases: &HashMap<usize, f32>) {
-        for (node_id, bias) in biases {
-            if let Some(&idx) = self.node_to_index.get(node_id) {
-                self.biases[idx] = *bias;
-            }
+    fn set_inputs(&mut self, inputs: &[f32]) -> Result<(), NetworkError> {
+        if inputs.len() != self.genome.input_nodes.len() {
+            return Err(NetworkError::InvalidInput("Input size not correct.".into()));
         }
+
+        for (idx, &input) in inputs.iter().enumerate() {
+            self.states[self.node_to_index[&self.genome.input_nodes[idx]]] = input;
+        }
+
+        // Set bias to 1.0
+        if let Some(&idx) = self.node_to_index.get(&self.genome.bias_node) {
+            self.states[idx] = 1.0;
+        }
+
+        Ok(())
     }
 
     pub fn reset_states(&mut self) {
@@ -196,4 +176,18 @@ impl<'n> CtrnnNetwork<'n> {
             self.states[idx] = 1.0;
         }
     }
+
+    // Helper to check if a node is an input
+    fn is_input_node(&self, idx: usize) -> bool {
+        self.genome
+            .input_nodes
+            .iter()
+            .any(|&id| self.node_to_index.get(&id) == Some(&idx))
+            || self.node_to_index.get(&self.genome.bias_node) == Some(&idx)
+    }
+}
+
+// Helper function to compute sigmoid activation
+fn sigmoid(x: f32) -> f32 {
+    1.0 / (1.0 + (-x).exp())
 }

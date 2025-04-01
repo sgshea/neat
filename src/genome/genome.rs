@@ -82,8 +82,8 @@ impl Genome {
             let mut node = NodeGene::new(idx, config.default_activation_function);
             if config.network_type == NetworkType::CTRNN {
                 // randomize time constant and bias
-                node.time_constant = rng.random_range(0.1..5.0);
-                node.bias = rng.random_range(-1.0..1.0);
+                node.time_constant = rng.random_range(0.3..1.5);
+                node.bias = rng.random_range(-3.0..3.0);
             }
             nodes.insert(idx, node);
             output_nodes.push(idx);
@@ -302,18 +302,17 @@ impl Genome {
     // Mutate node bias and time constant (primarily for CTRNN)
     fn mutate_node_parameters(&mut self, config: &NeatConfig, rng: &mut dyn RngCore) {
         for node in self.nodes.values_mut() {
-            // Skip input nodes for bias mutation (they typically don't biases)
+            // Skip input nodes for bias mutation
             let is_input = self.input_nodes.contains(&node.id) || node.id == self.bias_node;
 
             // Mutate bias (except for input nodes)
             if !is_input && rng.random::<f32>() < config.bias_mutation_prob {
                 if rng.random::<f32>() < config.param_perturb_prob {
                     // Perturb existing bias
-                    node.bias += rng.random_range(-0.5..0.5);
-                    node.bias = node.bias.clamp(-8.0, 8.0);
+                    node.bias += rng.random_range(-1.0..1.0); // Wider range for perturbation
                 } else {
                     // Assign new random bias
-                    node.bias = rng.random_range(-1.0..1.0);
+                    node.bias = rng.random_range(-3.0..3.0); // Wider range for replacement
                 }
             }
 
@@ -321,18 +320,31 @@ impl Genome {
             if rng.random::<f32>() < config.time_constant_mutation_prob {
                 if rng.random::<f32>() < config.param_perturb_prob {
                     // Perturb existing time constant
-                    let delta = rng.random_range(-0.1..0.1);
-                    node.time_constant = (node.time_constant + delta).max(0.1);
+                    let factor = if rng.random::<bool>() {
+                        // Sometimes make bigger/smaller changes
+                        rng.random_range(0.8..1.2)
+                    } else {
+                        rng.random_range(0.5..1.5)
+                    };
+
+                    node.time_constant *= factor;
+
+                    // Ensure it stays in a reasonable range
+                    node.time_constant = node.time_constant.clamp(0.1, 10.0);
                 } else {
                     // Assign new random time constant
-                    // Values between 0.1 (fast) and 5.0 (slow)
-                    node.time_constant = rng.random_range(0.1..5.0);
+                    node.time_constant = rng.random_range(0.3..3.0);
                 }
             }
         }
     }
 
     pub fn compatibility_distance(&self, other: &Genome, config: &NeatConfig) -> f32 {
+        // Early exit if genomes are identical
+        if self.connection_set == other.connection_set {
+            return 0.0;
+        }
+
         let mut num_excess = 0;
         let mut num_disjoint = 0;
         let mut weight_diff_sum = 0.0;

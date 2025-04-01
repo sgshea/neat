@@ -1,4 +1,5 @@
 use rand::{rngs::StdRng, seq::IndexedRandom, Rng, SeedableRng};
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 
 use crate::{
     context::{Environment, NeatConfig},
@@ -87,6 +88,7 @@ impl Population {
         self
     }
 
+    // Evaluates all the genomes in the population
     pub fn evaluate<F>(&mut self, fitness_fn: F)
     where
         F: Fn(&Genome) -> f32,
@@ -99,6 +101,27 @@ impl Population {
                 genome.fitness = genome.apply_parsimony_pressure(&self.config, fitness);
             }
         }
+    }
+
+    // Evaluates all the genomes in the population in parallel using rayon
+    pub fn evaluate_parallel<F>(&mut self, fitness_fn: F)
+    where
+        F: Fn(&Genome) -> f32 + Send + Sync,
+    {
+        // Collect all genomes into flat vector first
+        let mut genomes = self
+            .species
+            .iter_mut()
+            .flat_map(|species| &mut species.genomes)
+            .collect::<Vec<_>>();
+
+        // Evaluate using rayon parallel iterator
+        genomes.par_iter_mut().for_each(|genome| {
+            let fitness = fitness_fn(genome);
+
+            // Apply parsimony pressure to fitness
+            genome.fitness = genome.apply_parsimony_pressure(&self.config, fitness);
+        });
     }
 
     pub fn get_best_genome(&self) -> Option<&Genome> {

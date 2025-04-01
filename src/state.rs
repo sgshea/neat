@@ -36,7 +36,7 @@ impl SpeciationManager {
         if current_species_count > self.target_species_count * 2 {
             self.compatibility_threshold *= 1.3;
         } else if current_species_count < self.target_species_count / 2 {
-            self.compatibility_threshold *= 0.95;
+            self.compatibility_threshold *= 0.90;
         }
     }
 }
