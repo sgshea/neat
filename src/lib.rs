@@ -1,6 +1,5 @@
+pub mod environment;
 pub mod genome;
+pub mod nn;
 pub mod population;
-
-mod species;
-mod innovation_record;
-mod genes;
+pub mod species;

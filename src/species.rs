@@ -1,97 +1,101 @@
-use crate::genome::Genome;
-use crate::innovation_record::InnovationRecord;
-use rand::seq::SliceRandom;
-use rand::Rng;
+use crate::{
+    genome::genome::{Genome, InnovationRecord},
+    population::NeatConfig,
+};
+use rand::{seq::IndexedRandom, Rng};
 
-pub struct Specie {
+#[derive(Debug, Clone)]
+pub struct Species {
     pub id: usize,
     pub genomes: Vec<Genome>,
-    pub champion: Genome,
     pub representative: Genome,
-    pub average_fitness: f64,
-    pub stagnation: usize,
+    pub staleness: usize,
+    pub best_fitness: f32,
+    pub best_fitness_genome: Option<Genome>,
+    pub average_fitness: f32,
 }
 
-impl Specie {
+impl Species {
     pub fn new(id: usize, representative: Genome) -> Self {
-        let average_fitness = representative.fitness;
-
-        Self {
+        Species {
             id,
-            genomes: vec![representative.clone()],
-            champion: representative.clone(),
+            genomes: vec![],
             representative,
-            average_fitness,
-            stagnation: 0,
+            staleness: 0,
+            best_fitness: 0.0,
+            best_fitness_genome: None,
+            average_fitness: 0.0,
         }
     }
 
-    // Does genome fit in species
-    pub fn match_genome(&mut self, genome: &Genome) -> bool {
-        self.representative.compatability_distance(genome) < 2.0
-    }
-
-    pub fn add_genome(&mut self, genome: Genome) {
+    pub fn add(&mut self, genome: Genome) {
         self.genomes.push(genome);
     }
 
-    // Calculates average fitness of species
-    // Returns sum of adj fitness
-    pub fn calculate_average_fitness(&mut self) -> f64 {
-        let genome_count = self.genomes.len() as f64;
-
-        // Fitness sharing
-        self.genomes.iter_mut().for_each(|genome| {
-            genome.adj_fitness = genome.fitness / genome_count;
-        });
-
-        let total = self.genomes.iter().fold(0.0, |acc, genome| acc + genome.adj_fitness);
-
-        let fitness = total / genome_count;
-
-        // Check stagnation
-        if fitness > self.average_fitness {
-            self.stagnation = 0;
-        } else {
-            self.stagnation += 1;
+    pub fn calculate_average_fitness(&mut self) {
+        if self.genomes.is_empty() {
+            self.average_fitness = 0.0;
+            return;
         }
 
-        self.average_fitness = fitness;
-        total
+        let total_fitness: f32 = self.genomes.iter().map(|g| g.fitness).sum();
+        self.average_fitness = total_fitness / self.genomes.len() as f32;
     }
 
-    pub fn select_genome(&self) -> Genome {
-        let mut rng = rand::thread_rng();
-        self.genomes.choose(&mut rng).unwrap().clone()
-    }
-
-    pub fn make_child(&self, innovation_record: &mut InnovationRecord) -> Genome {
-        let mut rng = rand::thread_rng();
-        let mut child = if rng.gen::<f64>() < 0.25 {
-            let mut parent = self.select_genome();
-            parent.mutate(innovation_record);
-            parent
-        } else {
-            let mut parent_1 = self.select_genome();
-            let mut parent_2 = self.select_genome();
-
-            if parent_1 < parent_2 {
-                parent_1.crossover(parent_2)
-            } else {
-                parent_2.crossover(parent_1)
-            }
+    pub fn update_best_fitness(&mut self) -> bool {
+        let best_genome = match self.genomes.iter().max_by(|a, b| {
+            a.fitness
+                .partial_cmp(&b.fitness)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }) {
+            Some(genome) => genome,
+            None => return false,
         };
-        child.mutate(innovation_record);
+
+        if best_genome.fitness > self.best_fitness {
+            self.best_fitness = best_genome.fitness;
+            self.best_fitness_genome = Some(best_genome.clone());
+            self.representative = best_genome.clone();
+            self.staleness = 0;
+            true
+        } else {
+            self.staleness += 1;
+            false
+        }
+    }
+
+    pub fn select_representative(&self) -> Genome {
+        self.genomes.choose(&mut rand::rng()).unwrap().clone()
+    }
+
+    pub fn make_child(&self, config: &NeatConfig, innovation: &mut InnovationRecord) -> Genome {
+        let mut rng = rand::rng();
+        let mut child = if rng.random::<f32>() < config.crossover_rate {
+            // Crossover
+            let parent1 = self.genomes.choose(&mut rng).unwrap();
+            let parent2 = self.genomes.choose(&mut rng).unwrap();
+            Genome::crossover(parent1, parent2)
+        } else {
+            // Mutation
+            let mut parent = self.genomes.choose(&mut rng).unwrap().from_existing();
+            parent.mutate(config, innovation);
+            parent
+        };
+
+        child.mutate(config, innovation);
         child
     }
 
     pub fn cull(&mut self) -> usize {
-        let prev_len = self.genomes.len();
-        self.genomes.sort();
-        // Remove second half (lowest fitness)
-        if prev_len > 3 {
-            self.genomes.truncate(self.genomes.len() / 2);
-        }
-        prev_len
+        // Sort genomes so that the best fitness is at the end.
+        self.genomes.sort_by(|a, b| {
+            a.fitness
+                .partial_cmp(&b.fitness)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        // Keep only the top 50% of genomes
+        let survivors = (self.genomes.len() as f32 / 2.0).ceil() as usize;
+        self.genomes = self.genomes.split_off(self.genomes.len() - survivors);
+        survivors
     }
 }
