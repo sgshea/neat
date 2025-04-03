@@ -57,8 +57,8 @@ fn main() {
         allowed_activation_functions: vec![ActivationFunction::Sigmoid],
         default_activation_function: ActivationFunction::Sigmoid,
 
-        complexity_penalty_coefficient: 0.001,
-        connections_penalty_coefficient: 0.0005,
+        complexity_penalty_coefficient: 0.005,
+        connections_penalty_coefficient: 0.0015,
         target_complexity: 1,    // XOR minimal solution has 1 hidden node
         complexity_threshold: 3, // Don't penalize until more than this
 
@@ -72,8 +72,8 @@ fn main() {
         .with_rng(42)
         .initialize();
 
-    for _ in 0..100 {
-        population.evaluate(|genome| xor_test(&genome, false));
+    for _ in 0..250 {
+        population.evaluate_parallel(|genome| xor_test(&genome, false));
         population.evolve();
 
         println!(
