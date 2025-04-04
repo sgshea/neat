@@ -225,40 +225,17 @@ impl App for SimulationApp<'_> {
 }
 
 fn main() -> Result<(), eframe::Error> {
-    // Initialize NEAT configuration.
-    let config = NeatConfig {
-        network_type: NetworkType::Feedforward,
-        population_size: 50,
-        initial_compatibility_threshold: 3.0,
-        compatibility_disjoint_coefficient: 1.0,
-        compatibility_weight_coefficient: 0.3,
-
-        weight_mutation_prob: 0.8,
-        weight_perturb_prob: 0.9,
-        new_connection_prob: 0.05,
-        new_node_prob: 0.03,
-        toggle_enable_prob: 0.01,
-
-        crossover_rate: 0.75,
-        survival_threshold: 0.3,
-
-        species_elitism: true,
-        elitism: 2,
-        stagnation_limit: 20,
-        target_species_count: 5,
-
-        allowed_activation_functions: vec![ActivationFunction::Sigmoid],
-        default_activation_function: ActivationFunction::Sigmoid,
-
-        complexity_penalty_coefficient: 0.005,
-        connections_penalty_coefficient: 0.0015,
-        target_complexity: 1,
-        complexity_threshold: 3,
-
-        time_constant_mutation_prob: 0.0,
-        param_perturb_prob: 0.0,
-        bias_mutation_prob: 0.0,
-    };
+    let config = NeatConfig::builder()
+        .network_type(NetworkType::Feedforward)
+        .activation_functions(vec![
+            ActivationFunction::Sigmoid,
+            ActivationFunction::Tanh,
+            ActivationFunction::Relu,
+        ])
+        .default_activation_function(ActivationFunction::Sigmoid)
+        .input_activation_function(ActivationFunction::Tanh)
+        .output_activation_function(ActivationFunction::Relu)
+        .build();
 
     // For cartpole simulation, the network expects 4 inputs and 1 output.
     let environment = Environment::new(4, 1);

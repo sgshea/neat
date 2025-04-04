@@ -335,43 +335,17 @@ impl App for InvertedPendulumApp<'_> {
 }
 
 fn main() -> Result<(), eframe::Error> {
-    let config = NeatConfig {
-        network_type: NetworkType::Feedforward,
-        population_size: 150,
-        initial_compatibility_threshold: 3.0,
-        compatibility_disjoint_coefficient: 1.0,
-        compatibility_weight_coefficient: 0.3,
-
-        weight_mutation_prob: 0.8,
-        weight_perturb_prob: 0.9,
-        new_connection_prob: 0.15,
-        new_node_prob: 0.05,
-        toggle_enable_prob: 0.01,
-
-        crossover_rate: 0.75,
-        survival_threshold: 0.3,
-
-        species_elitism: true,
-        elitism: 2,
-        stagnation_limit: 30,
-        target_species_count: 8,
-
-        allowed_activation_functions: vec![
+    let config = NeatConfig::builder()
+        .network_type(NetworkType::Feedforward)
+        .activation_functions(vec![
             ActivationFunction::Sigmoid,
             ActivationFunction::Tanh,
             ActivationFunction::Relu,
-        ],
-        default_activation_function: ActivationFunction::Sigmoid,
-
-        complexity_penalty_coefficient: 0.003, // Relaxed complexity penalty
-        connections_penalty_coefficient: 0.001,
-        target_complexity: 5,
-        complexity_threshold: 8, // Allow more complex networks
-
-        time_constant_mutation_prob: 0.0,
-        param_perturb_prob: 0.0,
-        bias_mutation_prob: 0.2,
-    };
+        ])
+        .default_activation_function(ActivationFunction::Sigmoid)
+        .input_activation_function(ActivationFunction::Tanh)
+        .output_activation_function(ActivationFunction::Relu)
+        .build();
 
     // For inverted pendulum simulation, the network expects 4 inputs and 1 output
     let environment = Environment::new(4, 1);
@@ -379,7 +353,7 @@ fn main() -> Result<(), eframe::Error> {
         .with_rng(42)
         .initialize();
 
-    for _ in 0..80 {
+    for _ in 0..1000 {
         population.evaluate_parallel(|genome| inverted_pendulum_test(genome));
         population.evolve();
         println!(

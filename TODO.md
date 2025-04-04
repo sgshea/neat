@@ -1,2 +1,1 @@
-- Configure input and output node activation functions.
-- Prevent recurrent connections on feedforward networks.
+

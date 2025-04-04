@@ -1,5 +1,5 @@
 use neat::{
-    context::{ActivationFunction, Environment, NeatConfig},
+    context::{Environment, NeatConfig},
     genome::genome::Genome,
     nn::{
         feedforward::FeedforwardNetwork,
@@ -31,42 +31,11 @@ fn xor_test(genome: &Genome, display: bool) -> f32 {
 }
 
 fn main() {
-    let config = NeatConfig {
-        network_type: NetworkType::Feedforward,
+    let config = NeatConfig::builder()
+        .network_type(NetworkType::Feedforward)
+        .complexity_control(0.005, 0.0015, 1, 3)
+        .build();
 
-        population_size: 150,
-
-        initial_compatibility_threshold: 3.0,
-        compatibility_disjoint_coefficient: 1.0,
-        compatibility_weight_coefficient: 0.3,
-
-        weight_mutation_prob: 0.8,
-        weight_perturb_prob: 0.9,
-        new_connection_prob: 0.05,
-        new_node_prob: 0.03,
-        toggle_enable_prob: 0.01,
-
-        crossover_rate: 0.75,
-        survival_threshold: 0.3,
-
-        species_elitism: true,
-        elitism: 2,
-        stagnation_limit: 20,
-        target_species_count: 5,
-
-        allowed_activation_functions: vec![ActivationFunction::Sigmoid],
-        default_activation_function: ActivationFunction::Sigmoid,
-
-        complexity_penalty_coefficient: 0.005,
-        connections_penalty_coefficient: 0.0015,
-        target_complexity: 1,    // XOR minimal solution has 1 hidden node
-        complexity_threshold: 3, // Don't penalize until more than this
-
-        // CTRNN specific not needed
-        time_constant_mutation_prob: 0.0,
-        param_perturb_prob: 0.0,
-        bias_mutation_prob: 0.0,
-    };
     let environment = Environment::new(2, 1);
     let mut population = Population::new(config, environment)
         .with_rng(42)

@@ -68,7 +68,7 @@ impl Genome {
 
         for _ in 0..input_size {
             let idx = innovation.record_node_innovation();
-            nodes.insert(idx, NodeGene::new(idx, ActivationFunction::Identity));
+            nodes.insert(idx, NodeGene::new(idx, config.input_activation_function));
             input_nodes.push(idx);
         }
 
@@ -79,7 +79,7 @@ impl Genome {
 
         for _ in 0..output_size {
             let idx = innovation.record_node_innovation();
-            let mut node = NodeGene::new(idx, config.default_activation_function);
+            let mut node = NodeGene::new(idx, config.output_activation_function);
             if config.network_type == NetworkType::CTRNN {
                 // randomize time constant and bias
                 node.time_constant = rng.random_range(0.3..1.5);
@@ -148,7 +148,7 @@ impl Genome {
 
         // Add connection mutation
         if rng.random::<f32>() < config.new_connection_prob {
-            self.add_connection_mutation(rng, innovation_record);
+            self.add_connection_mutation(config, rng, innovation_record);
         }
 
         // Add node mutation
@@ -169,30 +169,16 @@ impl Genome {
 
     fn add_connection_mutation(
         &mut self,
+        config: &NeatConfig,
         rng: &mut dyn RngCore,
         innovation: &mut InnovationRecord,
     ) {
         // Collect all possible node pairs that could be connected
         let mut possible_connections = Vec::new();
 
-        // For efficiency, precompute which nodes are inputs/outputs
-        let input_nodes: std::collections::HashSet<_> = self.input_nodes.iter().cloned().collect();
-        let output_nodes: std::collections::HashSet<_> =
-            self.output_nodes.iter().cloned().collect();
-
         // Try all possible node pairs
         for &from_node in self.nodes.keys() {
-            // Skip output nodes as sources for connections
-            if output_nodes.contains(&from_node) {
-                continue;
-            }
-
             for &to_node in self.nodes.keys() {
-                // Skip input nodes as targets for connections
-                if input_nodes.contains(&to_node) {
-                    continue;
-                }
-
                 // Skip connections that already exist
                 if self.connection_set.contains(&(from_node, to_node)) {
                     continue;
@@ -201,6 +187,13 @@ impl Genome {
                 // Skip self-connections
                 if from_node == to_node {
                     continue;
+                }
+
+                // Skip connections that are recurrent if the network is a feedforward network
+                if config.network_type == NetworkType::Feedforward {
+                    if is_recurrent(self, from_node, to_node) {
+                        continue;
+                    }
                 }
 
                 // This is a valid potential connection
@@ -527,4 +520,38 @@ impl Genome {
         let penalized_fitness = original_fitness - node_penalty - connection_penalty;
         penalized_fitness.max(0.00001) // Prevent zero fitness
     }
+}
+
+// Helper function to check if a connection is recurrent
+fn is_recurrent(genome: &Genome, from_node: usize, to_node: usize) -> bool {
+    let mut visited = HashSet::new();
+    is_recurrent_recursive(genome, from_node, to_node, &mut visited)
+}
+
+// Helper function to check if a connection is recurrent
+fn is_recurrent_recursive(
+    genome: &Genome,
+    start_node: usize,
+    target_node: usize,
+    visited: &mut HashSet<usize>,
+) -> bool {
+    visited.insert(start_node);
+
+    if start_node == target_node {
+        return true;
+    }
+
+    for connection in genome.connections.values() {
+        if connection.in_node == start_node {
+            let next_node = connection.out_node;
+            if visited.contains(&next_node) {
+                continue;
+            }
+            if is_recurrent_recursive(genome, next_node, target_node, visited) {
+                return true;
+            }
+        }
+    }
+
+    false
 }
