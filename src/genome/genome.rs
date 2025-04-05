@@ -1,6 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::File,
+};
 
 use rand::{seq::IteratorRandom, Rng, RngCore};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     context::{ActivationFunction, NeatConfig},
@@ -11,7 +15,7 @@ use crate::{
 use super::genes::{ConnectionGene, NodeGene};
 
 // Genome is a single entity
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Genome {
     pub nodes: HashMap<usize, NodeGene>,
     pub connections: HashMap<usize, ConnectionGene>,
@@ -53,6 +57,22 @@ impl Genome {
             fitness: 0.0,
             adjusted_fitness: 0.0,
         }
+    }
+
+    // Saves to a file
+    pub fn save(&self, path: &str) -> Result<(), std::io::Error> {
+        let mut file = File::create(path)?;
+        bincode::serde::encode_into_std_write(self, &mut file, bincode::config::standard())
+            .unwrap();
+        Ok(())
+    }
+
+    // Loads from a file
+    pub fn load(path: &str) -> Result<Self, std::io::Error> {
+        let mut file = File::open(path)?;
+        let genome =
+            bincode::serde::decode_from_std_read(&mut file, bincode::config::standard()).unwrap();
+        Ok(genome)
     }
 
     pub fn create_initial_genome(

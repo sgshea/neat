@@ -61,14 +61,20 @@ impl Population {
     }
 
     // Builder to initialize population
-    pub fn initialize(mut self) -> Self {
-        let initial_genome = Genome::create_initial_genome(
-            self.environment.input_size,
-            self.environment.output_size,
-            &self.config,
-            &mut self.rng,
-            &mut self.innovation,
-        );
+    pub fn initialize(mut self, ancestor_genome: Option<Genome>) -> Self {
+        let initial_genome = if let Some(genome) = ancestor_genome {
+            // Use the provided genome's structure as starting innovation record
+            self.innovation = InnovationRecord::from_genome(&genome);
+            genome
+        } else {
+            Genome::create_initial_genome(
+                self.environment.input_size,
+                self.environment.output_size,
+                &self.config,
+                &mut self.rng,
+                &mut self.innovation,
+            )
+        };
 
         // Start with just one species containing all genomes
         let mut initial_species =
@@ -174,9 +180,6 @@ impl Population {
                 self.species.push(new_species);
             }
         }
-
-        // Final cleanup - remove any species that ended up empty
-        self.species.retain(|s| !s.genomes.is_empty());
 
         // Adjust threshold based on current species count
         self.species_manager.adjust_threshold(self.species.len());

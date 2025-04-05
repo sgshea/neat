@@ -11,6 +11,8 @@ rayon = "1.10.0"
 eframe = "0.31.1"
 petgraph = "0.7.1"
 egui_graphs = "0.24.0"
+bincode = { version = "2.0.1", features = ["serde"] }
+serde = { version = "1.0.219", features = ["derive"] }
 
 [lib]
 name = "neat"

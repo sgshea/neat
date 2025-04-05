@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::genome::genome::Genome;
+
 // Manages the amount of species through adjusting the compatibility threshold
 // Also holds the current species counter (simple id for species)
 #[derive(Debug, Clone)]
@@ -65,6 +67,19 @@ impl InnovationRecord {
             connection_innovations: HashMap::new(),
             node_splits: HashMap::new(),
         }
+    }
+
+    // Initializes from an existing genome structure
+    pub fn from_genome(genome: &Genome) -> Self {
+        let mut innovation = InnovationRecord::new();
+        for connection in genome.connections.values() {
+            innovation.record_connection_innovation(connection.in_node, connection.out_node);
+        }
+        for _ in genome.nodes.values() {
+            innovation.record_node_innovation();
+        }
+
+        innovation
     }
 
     pub fn record_node_innovation(&mut self) -> usize {

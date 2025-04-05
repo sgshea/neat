@@ -241,7 +241,7 @@ fn main() -> Result<(), eframe::Error> {
     let environment = Environment::new(4, 1);
     let mut population = Population::new(config, environment)
         .with_rng(42)
-        .initialize();
+        .initialize(None);
 
     for _ in 0..10 {
         population.evaluate_parallel(|genome| cartpole_test(genome));

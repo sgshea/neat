@@ -94,9 +94,9 @@ impl Species {
                 .partial_cmp(&b.fitness)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        // Keep only the top 50% of genomes
-        let survivors = (self.genomes.len() as f32 / 2.0).ceil() as usize;
-        self.genomes = self.genomes.split_off(self.genomes.len() - survivors);
+        // Keep only the top 30% of genomes
+        let survivors = (self.genomes.len() as f32 * 0.3).ceil() as usize;
+        self.genomes.truncate(survivors);
         survivors
     }
 }

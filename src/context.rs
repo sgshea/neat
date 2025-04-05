@@ -1,13 +1,14 @@
+use serde::{Deserialize, Serialize};
+
 use crate::nn::nn::NetworkType;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ActivationFunction {
     Identity,
     Sigmoid,
     Tanh,
     Relu,
     LeakyRelu,
-    Custom(fn(f32) -> f32),
 }
 
 impl ActivationFunction {
@@ -18,7 +19,6 @@ impl ActivationFunction {
             ActivationFunction::Tanh => x.tanh(),
             ActivationFunction::Relu => x.max(0.0),
             ActivationFunction::LeakyRelu => x.max(0.01 * x),
-            ActivationFunction::Custom(f) => f(x),
         }
     }
 }

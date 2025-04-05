@@ -1,6 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use crate::context::ActivationFunction;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ConnectionGene {
     pub weight: f32,
     pub enabled: bool,
@@ -24,7 +26,7 @@ impl ConnectionGene {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct NodeGene {
     pub id: usize,
     pub activation: ActivationFunction,

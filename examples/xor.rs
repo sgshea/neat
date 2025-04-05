@@ -39,7 +39,7 @@ fn main() {
     let environment = Environment::new(2, 1);
     let mut population = Population::new(config, environment)
         .with_rng(42)
-        .initialize();
+        .initialize(None);
 
     for _ in 0..250 {
         population.evaluate_parallel(|genome| xor_test(&genome, false));
